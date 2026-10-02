@@ -1,12 +1,20 @@
 # Composable JSON
 
+- **Version:** 1.0.0-draft
+- **Date:** 2026-10-02
+- **Editor:** Blake Miner
+- **Latest version:**
+  <https://github.com/bminer/composable-json/blob/master/SPEC.md>
+- **License:** MIT
+
 Composable JSON defines a standard way for JSON documents (RFC 8259) to reuse or
 override values from other JSON documents.
 
 Reuse is expressed with _directives_: object keys beginning with `$`, which are
 reserved for the purpose. A _resolver_ replaces each directive with the value it
-references, producing ordinary JSON. This specification defines six directives,
-the syntax of a reference, and how a resolver combines what it references.
+references, producing ordinary JSON. This specification defines seven
+directives, the syntax of a reference, and how a resolver combines what it
+references.
 
 ## Motivation
 
@@ -19,8 +27,8 @@ slightly). Restating the common part everywhere means a change to a shared value
 has to be repeated in every copy, and a copy that drifts gives no sign that it
 has.
 
-Other formats grew their own answers to this – YAML anchors, `extends` in
-tsconfig and ESLint, Kustomize overlays, and the configuration languages – but
+Other formats grew their own answers to this — YAML anchors, `extends` in
+tsconfig and ESLint, Kustomize overlays, and the configuration languages — but
 each is tied to a particular format or tool (see [Prior art](#prior-art)). This
 specification does that job for plain JSON: a Composable JSON document is still
 valid JSON that any parser will read.
@@ -72,9 +80,11 @@ Objects merge key by key, to any depth, and the importing document wins.
 | `$anchor`  | names this node so that references can find it       | a name                 |
 | `$defs`    | holds fragments referenced within the document       | any object             |
 | `$comment` | records a note, ignored when resolving               | a string               |
+| `$schema`  | names a schema for editors, ignored when resolving   | a string               |
 
-`$ref`, `$extend` and `$splice` are consumed during resolution and do not appear
-in the output. `$anchor`, `$defs` and `$comment` are retained.
+`$ref`, `$extend` (and its synonym `$extends`) and `$splice` are consumed during
+resolution and do not appear in the output. `$anchor`, `$defs` and `$comment`
+are retained, and so is `$schema` when the resolved document itself contains it.
 
 ### Host directives
 
@@ -91,9 +101,14 @@ among the harder failures to diagnose from the output alone.
 Host directives are resolved by the host, not by this specification, and are
 therefore neither consumed nor interpreted here. A host should avoid names this
 specification might plausibly take later. `$import`, `$merge`, `$delete` and
-`$override` have all been considered, and so has `$id`, which may yet replace
-`$anchor` (see
-[Relationship to existing standards](#relationship-to-existing-standards)).
+`$override` have all been considered.
+
+`$id` is reserved for a future version (see
+[Relationship to existing standards](#relationship-to-existing-standards)). This
+version ignores it: it is not an error, has no effect on resolution, and is
+retained in the output like `$comment`. A host format must not define it.
+Because documents may already contain `$id`, giving it a meaning later would be
+a major release (see [Versioning](#versioning)).
 
 ### References
 
@@ -189,7 +204,7 @@ remains addressable after that document is imported into another.
 
 `$extend` combines one or more referenced objects with the node that contains
 it, and the node's own keys take precedence. It is legal on any object, and its
-value is a reference string or an array of references. The [Overview](#overview)
+value is a reference string or an array of references. The [Example](#example)
 shows the common case.
 
 `$extends` (plural) is accepted as a synonym, for familiarity with the `extends`
@@ -292,14 +307,41 @@ within itself:
 		{ "$extend": "#/$defs/deploy", "env": "staging" }
 	],
 	"$defs": {
-		"commonTasks": [{ "$anchor": "checkout", "run": "git checkout" }],
+		"commonTasks": [{ "run": "git checkout" }, { "run": "npm ci" }],
+		"deploy": { "run": "./deploy.sh" }
+	}
+}
+```
+
+resolves to:
+
+```json
+{
+	"tasks": [
+		{ "run": "git checkout" },
+		{ "run": "npm ci" },
+		{ "run": "./deploy.sh", "env": "staging" }
+	],
+	"$defs": {
+		"commonTasks": [{ "run": "git checkout" }, { "run": "npm ci" }],
 		"deploy": { "run": "./deploy.sh" }
 	}
 }
 ```
 
 The name is borrowed from JSON Schema. `$defs` is retained in the resolved
-output; consumers are expected to ignore it.
+output; consumers are expected to ignore it. Other documents may reference into
+it, as they may into any part of the output.
+
+**`$anchor` is not allowed anywhere inside `$defs`**, whether written there or
+brought in by a reference. A fragment in `$defs` exists to be copied, and the
+original stays in place, so an anchor inside it would always end up on two nodes
+— a [collision](#anchor-scope-and-collisions). Reference a `$defs` fragment by
+pointer instead. To name a copy, declare the anchor where the copy is made:
+
+```json
+{ "$anchor": "deploy", "$extend": "#/$defs/deploy", "env": "staging" }
+```
 
 ### `$comment`
 
@@ -317,6 +359,28 @@ format assembled from many hand-edited files needs somewhere to explain itself.
 It is legal on any object, and is retained in the resolved output — so a comment
 written in one document survives into every document that extends it. The name
 and the role are JSON Schema's.
+
+### `$schema`
+
+`$schema` holds a string, conventionally the URI of a JSON Schema, that editors
+use to validate and complete the document as it is written. Many configuration
+formats already place it at the top of their files, and it would otherwise be an
+error here.
+
+```json
+{
+	"$schema": "./service.schema.json",
+	"$extend": "./service.base.json",
+	"server": { "tls": true }
+}
+```
+
+This specification ignores it. Its value is not a reference and is never
+resolved or retrieved. It is legal on any object, but only a `$schema` that the
+resolved document itself contains reaches the output. A value referenced from
+another document never carries one: any `$schema` within it, at any depth, is
+dropped. Each file names the schema its own editors should use, and the output
+keeps the one the top-level document chose, or none if it chose none.
 
 ### Choosing a directive
 
@@ -466,18 +530,91 @@ Had `overlay.json` held that `null` instead, the result would keep
 Resolving a document means producing a single JSON value from it:
 
 1. Parse the document.
-2. Resolve its `$ref`, `$extend` and `$splice` directives depth first —
-   innermost node first. For each reference: resolve the referenced document
-   completely, select the fragment, then replace, merge or splice as that
-   directive specifies.
+2. Resolve every node, as described below.
 3. Verify that `$anchor` values are unique across the result.
 
-Step 2 is recursive: a referenced document is fully resolved, including its own
-references, before a fragment is selected from it. A document therefore resolves
-after everything it references.
+A node's value depends on its children and on whatever its directives reference:
 
-Anchor lookup is resolved on demand. If finding `#oncall` requires some other
-node to resolve first, that node is resolved first.
+- A `$ref` node resolves to its target.
+- An `$extend` node resolves to the values its references select, merged with
+  its own resolved keys.
+- An array resolves to its resolved elements, with each `$splice` node replaced
+  by the elements of the arrays it references.
+- Any other node resolves to itself, with each child resolved.
+
+A node cannot resolve before its children, so resolution proceeds innermost
+first.
+
+#### What a reference needs
+
+A reference depends on as little of the referenced document as possible. Three
+rules decide exactly how much:
+
+1. **The target is resolved completely.** It is copied into the result, so all
+   of it is needed.
+2. **Reaching the target resolves only the path to it.** A pointer is followed
+   one step at a time, and each step resolves only enough to find the next key
+   or index:
+   - In an object containing `$extend`, the step needs the values its references
+     select and the object's own key for that step, but not its other keys.
+   - In an array, the step needs the values its `$splice` elements reference,
+     which decide where every element falls, but not the other elements.
+   - At a `$ref` node, the step continues in its target.
+   - Any other node is stepped into directly.
+3. **A node needed while it is still being resolved is a cycle**, and an error
+   (see [Cycles and memoization](#cycles-and-memoization)).
+
+Pointers therefore address the resolved document. An array index counts elements
+after splicing, and a key may be one the object inherited through `$extend`. The
+rest of the referenced document is left alone, and need not resolve at all for
+the reference to succeed.
+
+The rules apply to every reference, whether it points into the same document or
+another one.
+
+#### Finding an anchor
+
+Names can arrive through imports, so finding the node an anchor names could mean
+resolving the whole referenced document, including the very node that holds the
+reference. To avoid that, a resolver looks first among the anchors written in
+the referenced document. Only if none of them has the name does it resolve the
+rest of the document, as far as needed, to look further.
+
+This never changes a successful result. A written anchor and an imported one
+with the same name are a [collision](#anchor-scope-and-collisions) either way.
+
+#### Examples
+
+Given `service.base.json` from the [Example](#example):
+
+```json
+{
+	"$extend": "./service.base.json",
+	"server": { "tls": true },
+	"healthcheck": { "port": { "$ref": "#/server/port" } }
+}
+```
+
+`#/server/port` steps into the root, which contains `$extend`. That step needs
+`service.base.json` and the root's own `server` key, `{"tls": true}`, but not
+`healthcheck`. Their merge has `port` 8080, which the reference selects. The
+document references a value it inherited, from inside itself, without a cycle.
+
+Two documents may also reference each other. Given `a.json`:
+
+```json
+{ "name": "a", "peer": { "$ref": "./b.json#/name" } }
+```
+
+and `b.json`:
+
+```json
+{ "name": "b", "peer": { "$ref": "./a.json#/name" } }
+```
+
+`a.json`'s `peer` needs only `/name` from `b.json`, which holds no directive,
+and never `b.json`'s own `peer`. Each document resolves to its own name and the
+other's.
 
 ### Literal `null`
 
@@ -495,6 +632,19 @@ an empty object and `$splice` as an empty array, so either contributes nothing.
 Only a `null` written in the node itself deletes. A `null` inside a referenced
 document is an ordinary value, whether that document is the first reference in
 an `$extend` list or the last.
+
+That holds however deep the reference sits. A `null` that reaches the node's own
+keys through a nested `$ref`, `$extend` or `$splice` was still delivered by a
+reference, so it passes through as `null` and deletes nothing. Given
+`defaults.json` from [Precedence and removal](#precedence-and-removal), and
+`nothing.json` containing only `null`:
+
+```json
+{ "$extend": "./defaults.json", "cache": { "$ref": "./nothing.json" } }
+```
+
+resolves to `{"cache": null, "debug": false}`, not to a document without
+`cache`.
 
 ### Anchor scope and collisions
 
@@ -517,6 +667,24 @@ in the other two.
 The same holds for every directive that selects a fragment. Anchors inside the
 elements that `$splice` inserts travel into the containing document, exactly as
 those inside an object merged by `$extend` do.
+
+#### Same-document references
+
+A reference within a document copies the selected value, anchors included, and
+the original stays where it is. Copying an anchored node within its own document
+therefore always produces two nodes with the same name:
+
+```json
+{
+	"primary": { "$anchor": "oncall", "members": ["ana", "bo"] },
+	"backup": { "$ref": "#oncall" }
+}
+```
+
+is an error, because `primary` and `backup` both carry `oncall`. To reuse such a
+node, give the copy a name of its own with `$extend` (see
+[Renaming](#renaming)), or move the node, without its anchor, into
+[`$defs`](#defs) and reference it by pointer.
 
 #### `$anchor` does not affect merging
 
@@ -591,6 +759,11 @@ remote document stays remote.
 Nothing in a document can change its base URI. There is no equivalent of JSON
 Schema's `$id`.
 
+A document that was not loaded from a URI — read from standard input, or
+supplied as a string — has no base URI unless the caller provides one. Its
+fragment-only references (`#...`) still resolve, but any other relative
+reference is an error.
+
 This specification places no restriction on the scheme. An implementation may
 support any subset — commonly `file` alone — and **must report an error for a
 scheme it does not support** rather than ignoring the reference or falling back
@@ -618,17 +791,20 @@ is wrong, and `C:` parses as a scheme. Use a relative reference, or a full
 `file:///C:/...` URI.
 
 Reference tokens within a fragment use RFC 6901 escaping — `~1` for `/` and `~0`
-for `~` — and are additionally percent-encoded where RFC 6901 §6 requires.
-Because `#` only ever appears as the fragment delimiter, it needs no escape
-within a path.
+for `~` — and are additionally percent-encoded where RFC 6901 §6 requires. In
+particular, `#` may appear only as the fragment delimiter, so a `#` within a
+path or a key is written `%23`.
 
 ### Cycles and memoization
 
-Resolved values are cached by `(resolved URI, pointer)`. Without this, a deep
-chain of imports re-resolves exponentially.
+Resolved values are cached by `(resolved URI, pointer)`. An anchor reference is
+first converted to the JSON Pointer of the node it names, so `#oncall` and
+`#/primary` share one entry. Without the cache, a document imported along more
+than one path is resolved once per path, and when such imports are layered the
+number of paths — and the work — grows exponentially.
 
-A reference that is already being resolved is a cycle. Detection operates on the
-same key, which catches all three shapes:
+A node needed while it is still being resolved is a cycle. Detection uses the
+same key as the cache, which catches all three shapes:
 
 ```json
 { "a": { "$extend": "#/b" }, "b": { "$extend": "#/a" } }
@@ -642,11 +818,26 @@ same key, which catches all three shapes:
 a.json#/p  ->  b.json#/q  ->  a.json#/p
 ```
 
-The second is worth noting: resolving `x` requires resolving its own descendant,
-which requires `x`. It is not obviously a cycle when read.
+In the first, `a` needs all of `b`, and `b` needs all of `a`. The second is
+worth noting: resolving `x` requires resolving its own descendant, which
+requires `x`. It is not obviously a cycle when read.
 
 Because detection is per node rather than per document, two documents may
-reference each other so long as no individual node does.
+reference each other, as in [Resolution order](#resolution-order), so long as no
+node needs itself.
+
+The rules in [What a reference needs](#what-a-reference-needs) decide exactly
+what is a cycle, so that every resolver agrees. The cost is that they reject a
+few documents a more elaborate resolver could handle:
+
+```json
+{ "a": { "$extend": "#/b", "k": 1 }, "b": { "x": { "$ref": "#/a/k" } } }
+```
+
+`a` needs all of `b`. Then `b`'s `x` steps into `a`, an object containing
+`$extend`, and that step needs all of `b` again before `k` can be found, even
+though `k` is `a`'s own key. A resolver must report this as a cycle, even one
+that could resolve it.
 
 A cycle has no JSON representation: it could only resolve to a value that
 contains itself, and JSON is a tree. A resolver that produces JSON must
@@ -663,25 +854,54 @@ one another.
 
 ### Errors
 
+- A document that is not valid JSON, including a referenced resource that is not
+  a JSON text
+- An object with duplicate keys, in any document
 - A reference that cannot be resolved, including one using a scheme the
   implementation does not support or the user has not enabled
+- A relative reference, other than a fragment-only one, in a document with no
+  base URI
 - A reference from a remote document to a local resource
 - A reference cycle, unless the implementation resolves into a graph (see
   [Cycles and memoization](#cycles-and-memoization)); the error should name the
   full chain
 - Duplicate `$anchor` within a resolved value; the error should give both paths,
   and say when one of them was imported
+- An `$anchor` inside `$defs`, whether written there or brought in by a
+  reference
 - A value referenced by `$extend` that is neither an object nor `null`
 - A value referenced by `$splice` that is neither an array nor `null`
 - `$splice` on an object that is not an element of an array
 - Any key alongside `$ref` or `$splice`, including `$anchor`
 - A node containing both `$extend` and its synonym `$extends`
+- An `$extend` or `$splice` given an empty array of references
 - A directive whose value is malformed or of the wrong type — an `$anchor` name
   that does not match its pattern, say, or a `$ref` given an array
 - A `$`-prefixed key defined by neither this specification nor the host format
-  (see [Host directives](#host-directives))
+  (see [Host directives](#host-directives)), other than the reserved `$id`
 
 ## Part 3 — Background
+
+### Versioning
+
+This specification is versioned according to
+[Semantic Versioning 2.0.0](https://semver.org/):
+
+- A **patch** release makes editorial changes only. No document resolves
+  differently.
+- A **minor** release may make documents valid that were previously errors —
+  most often by defining a new directive. Because a resolver rejects any
+  `$`-prefixed key it does not recognize, a document valid under an earlier
+  minor release resolves identically under a later one. The exception is the
+  reserved `$id`, which is ignored rather than rejected (see
+  [Host directives](#host-directives)).
+- A **major** release may change how a previously valid document resolves.
+
+A version with a pre-release suffix, such as `1.0.0-draft`, may still change
+incompatibly.
+
+Documents do not declare a version. An implementation states the version it
+implements, and a host format states the version it builds on.
 
 ### Media type
 
@@ -711,7 +931,7 @@ The format is assembled from existing specifications wherever one fits.
 | -------------------- | ------------------------------ | ----------------------------------------------------------------- |
 | References           | RFC 3986 (URI Reference)       | None                                                              |
 | Node addressing      | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form              |
-| Anchors              | JSON Schema `$anchor`          | Same keyword and fragment form; no base URI support               |
+| Anchors              | JSON Schema `$anchor`          | Same keyword and name; fragment may add a pointer; no base URIs   |
 | Replacement          | JSON Reference (expired draft) | Sibling keys are an error rather than ignored                     |
 | Merge semantics      | RFC 7396 (JSON Merge Patch)    | Unmodified for the node's keys; targets must be objects or `null` |
 | Combining references | RFC 7396 (JSON Merge Patch)    | `null` is a value, not a deletion                                 |
@@ -728,13 +948,14 @@ counterpart here. `$anchor` alone provides all the naming this format needs, and
 in consequence a document's base URI is always the location it was loaded from
 and cannot be moved by anything the document says.
 
-[JsonRef](http://jsonref.org/) v0.4.0 made the same break with JSON Schema independently, and its `$id`
-has exactly the role `$anchor` has here: it names a node without moving the base
-URI, and its fragment forms are the ones above. This specification keeps
-`$anchor` because JSON Schema, by far the more widely used of the two, gives
-`$id` base-URI semantics — enough that JsonRef itself must allow a root `$id` to
-be an absolute URI. Renaming `$anchor` to `$id` remains under consideration; if
-it happens, the name pattern would follow JsonRef's exactly.
+[JsonRef](http://jsonref.org/) v0.4.0 made the same break with JSON Schema
+independently, and its `$id` has exactly the role `$anchor` has here: it names a
+node without moving the base URI, and its fragment forms are the ones above.
+This specification keeps `$anchor` because JSON Schema, by far the more widely
+used of the two, gives `$id` base-URI semantics — enough that JsonRef itself
+must allow a root `$id` to be an absolute URI. `$id` is nonetheless reserved, so
+that a later version may give it a meaning without conflicting with any host
+format.
 
 Fragment identifier syntax and semantics belong to the media type of the
 retrieved resource, and BCP 190 (RFC 8820) accordingly forbids one specification
@@ -754,7 +975,7 @@ rather than behaving in a way its author did not intend.
 
 #### Composable JSON cannot compose JSON Schema
 
-Borrowing four keywords from JSON Schema invites the assumption that this format
+Borrowing five keywords from JSON Schema invites the assumption that this format
 can be used to assemble schema documents from parts. It cannot, for three
 independent reasons.
 
@@ -781,9 +1002,11 @@ performing structural inheritance; draft-04 removed it and introduced `allOf` in
 its place. Structural merging is a reasonable primitive for configuration and a
 poor one for schemas, and only the first is this format's concern.
 
-Beyond those three, `$id`, `$schema`, `$vocabulary`, `$dynamicRef` and
-`$dynamicAnchor` are errors here, being `$`-prefixed keys this specification
-does not define — unless a host format declares them as its own.
+Separately, `$vocabulary`, `$dynamicRef` and `$dynamicAnchor` are errors here,
+being `$`-prefixed keys this specification does not define — unless a host
+format declares them as its own. `$id` is reserved and, in this version,
+ignored. `$schema` is accepted only as a note for editors: it does not make the
+document a schema.
 
 ### Prior art
 
@@ -845,13 +1068,15 @@ reference can survive the document it points into being reorganized.
 
 - [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) — Uniform Resource
   Identifier (URI): Generic Syntax
+- [RFC 5234](https://www.rfc-editor.org/rfc/rfc5234) — Augmented BNF for Syntax
+  Specifications: ABNF
 - [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) — JavaScript Object
   Notation (JSON) Pointer
 - [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) — JSON Merge Patch
 - [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) — The JavaScript Object
   Notation (JSON) Data Interchange Format
 - [JSON Schema Core 2020-12](https://json-schema.org/draft/2020-12/json-schema-core)
-  — source of `$anchor` and `$defs`
+  — source of `$anchor`, `$defs`, `$comment` and `$schema`
 
 ### Informative references
 
