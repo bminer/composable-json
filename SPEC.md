@@ -236,6 +236,29 @@ according to the table below:
 `null` means "remove this key" only when the node supplies it. A `null` inside
 the referenced object is an ordinary value, kept unless the node overrides it.
 
+A `null` the node supplies is never kept, even where there is nothing to remove.
+In the last row, the node's value is used with any `null` inside its objects
+dropped, exactly as RFC 7396 does. Given `base.json`:
+
+```json
+{ "name": "svc" }
+```
+
+then:
+
+```json
+{ "$extend": "./base.json", "cache": { "ttl": null, "size": 10 } }
+```
+
+resolves to:
+
+```json
+{ "name": "svc", "cache": { "size": 10 } }
+```
+
+`base.json` has no `cache`, so the node's `cache` is used, but without its
+`null`.
+
 Arrays are ordinary values here, matched by the last row. If the referenced
 object holds `{"hosts": ["a", "b"]}` and the node holds `{"hosts": ["c"]}`, the
 merged result is `{"hosts": ["c"]}`. Array contents are never inspected and
@@ -574,14 +597,35 @@ another one.
 
 #### Finding an anchor
 
-Names can arrive through imports, so finding the node an anchor names could mean
-resolving the whole referenced document, including the very node that holds the
-reference. To avoid that, a resolver looks first among the anchors written in
-the referenced document. Only if none of them has the name does it resolve the
-rest of the document, as far as needed, to look further.
+A resolver finds the node an anchor names in two passes:
 
-This never changes a successful result. A written anchor and an imported one
-with the same name are a [collision](#anchor-scope-and-collisions) either way.
+1. It looks among the anchors written in the referenced document.
+2. If none of them has the name, it resolves the document's references to
+   _other_ documents, deferring those within the document, and looks among the
+   anchors their values bring in. The anchored node then resolves like any other
+   node at its position, merged with whatever the document's own keys supply
+   there.
+
+A name can arrive no other way. A copy made by a reference within the document
+would [collide](#anchor-scope-and-collisions) with its original, so deferring
+those references loses nothing. If resolving the references to other documents
+needs the node making the lookup, that is a cycle.
+
+Neither pass changes a successful result. A written anchor and an imported one
+with the same name are a collision either way.
+
+Given `middleware/common.json` from [Composing a list](#composing-a-list):
+
+```json
+{
+	"middleware": [{ "$splice": "./middleware/common.json#/middleware" }],
+	"limit": { "$ref": "#rateLimit/perMinute" }
+}
+```
+
+No `rateLimit` anchor is written in the document, so the second pass resolves
+the `$splice`, which brings one in, and `limit` resolves to 60. The `$ref` is
+deferred, so it is never needed while it is being resolved.
 
 #### Examples
 
@@ -853,6 +897,13 @@ before they can produce their own, and loops of `$ref` nodes that refer only to
 one another.
 
 ### Errors
+
+Resolution reports an error only in a part of a document that it needs (see
+[What a reference needs](#what-a-reference-needs)). A broken reference or an
+unknown directive in a part of a referenced document that nothing needs is not
+reported, though it is when that document is resolved itself. A referenced
+document must still parse, so invalid JSON and duplicate keys are errors
+wherever they occur.
 
 - A document that is not valid JSON, including a referenced resource that is not
   a JSON text
