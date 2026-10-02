@@ -100,6 +100,15 @@ specification might plausibly take later. `$import`, `$merge`, `$delete` and
 A reference is a URI reference (RFC 3986) whose fragment identifies a value
 within the referenced document.
 
+The character following `#` decides how the URI fragment is read, and so how the
+reference is resolved:
+
+- `/` — an RFC 6901 JSON Pointer, resolved from the document root
+- end of string, or no fragment at all — the whole document
+- anything else — an [`$anchor`](#anchor) name, terminated by `/` or end of
+  string, optionally followed by a JSON pointer path relative to the anchored
+  node
+
 ```abnf
 reference    = URI-reference                  ; RFC 3986
 fragment     = json-pointer / anchor-path
@@ -107,14 +116,6 @@ json-pointer = *( "/" reference-token )       ; RFC 6901
 anchor-path  = anchor *( "/" reference-token )
 anchor       = ( ALPHA / "_" ) *( ALPHA / DIGIT / "-" / "_" / "." )
 ```
-
-The character following `#` decides how the URI fragment is read, and so how the
-reference is resolved:
-
-- `/` — an RFC 6901 JSON Pointer, resolved from the document root
-- end of string, or no fragment at all — the whole document
-- anything else — an [`$anchor`](#anchor) name, terminated by `/` or end of
-  string, optionally followed by a pointer path relative to the anchored node
 
 | Reference                      | Resolves to                                 |
 | ------------------------------ | ------------------------------------------- |
@@ -124,7 +125,7 @@ reference is resolved:
 | `./base.json#oncall/members/1` | node with `oncall` anchor, then `members/1` |
 | `#oncall/members/1`            | the same, within the current document       |
 
-A reference without a scheme resolves against the location the containing
+A reference URI without a scheme resolves against the location the containing
 document was loaded from. For the precise rules — base URIs, supported schemes,
 percent-encoding and native paths — see
 [Base URIs, schemes, and encoding](#base-uris-schemes-and-encoding).
@@ -134,8 +135,9 @@ percent-encoding and native paths — see
 `$ref` replaces the node that contains it with the value its reference resolves
 to. Its value is a single reference string.
 
-The referenced value may be anything: an object, an array, a scalar, or `null`.
-A node containing `$ref` may contain no other key, reserved or otherwise.
+The referenced value may resolve to anything: an object, an array, a scalar, or
+`null`. A node containing `$ref` may contain no other key, reserved or
+otherwise.
 
 Given `defaults.json`:
 
@@ -186,38 +188,49 @@ remains addressable after that document is imported into another.
 ### `$extend`
 
 `$extend` combines one or more referenced objects with the node that contains
-it, the node's own keys taking precedence. It is legal on any object, including
-one that is an element of an array, and its value is a reference string or an
-array of references. The [Overview](#overview) shows the common case.
+it, and the node's own keys take precedence. It is legal on any object, and its
+value is a reference string or an array of references. The [Overview](#overview)
+shows the common case.
 
-`$extends` is accepted as a synonym, for familiarity with the `extends` key of
-tsconfig, ESLint and Docker Compose; it behaves identically. A node may use
-`$extend` or `$extends`, not both. Documents should prefer `$extend`, whose
+`$extends` (plural) is accepted as a synonym, for familiarity with the `extends`
+key of tsconfig, ESLint and Docker Compose; it behaves identically. A node may
+use `$extend` or `$extends`, not both. Documents should prefer `$extend`, whose
 imperative form matches `$splice`.
 
-Every reference must resolve to an object. Anything else is an error: use
-[`$ref`](#ref) to take a value as it is, or [`$splice`](#splice) to insert an
-array's elements into an array. That restriction is the only way `$extend`
-departs from RFC 7396, which accepts a value of any type.
+Every reference must resolve to an object or to `null`, which is treated as an
+empty object so that an optional base can be left empty on purpose. Any other
+value, including one that fails to resolve, is an error.
 
-The merge itself follows RFC 7396, recursively at every key. The referenced
-object supplies the first column below, the node supplies the second, and where
-they disagree the node wins.
+`$extend` departs from the JSON merge patch specification (RFC 7396) in two
+places. RFC 7396 silently replaces a target of any other type with an empty
+object; this specification rejects them, since a referenced array or string
+almost always means a reference pointing to the wrong place. And when several
+references are combined, a `null` among them is a value rather than a deletion,
+as described below.
 
-| In the referenced object | In the node     | Result                                       | RFC 7396     |
-| ------------------------ | --------------- | -------------------------------------------- | ------------ |
-| object                   | object          | merged key by key, recursively               | as specified |
-| any                      | key absent      | the referenced value is kept                 | as specified |
-| any                      | `null`          | the key is removed                           | as specified |
-| any                      | any other value | the node's value replaces the referenced one | as specified |
+The merge itself closely follows RFC 7396 and applies recursively at every key
+according to the table below:
+
+| At a key, the referenced object has | The node has    | Result                            | RFC 7396     |
+| ----------------------------------- | --------------- | --------------------------------- | ------------ |
+| an object                           | an object       | the two are merged recursively    | as specified |
+| any value (including `null`)        | no such key     | the referenced value is kept      | as specified |
+| any value, or no such key           | `null`          | the key is absent from the result | as specified |
+| any value, or no such key           | any other value | the node's value is used          | as specified |
+
+`null` means "remove this key" only when the node supplies it. A `null` inside
+the referenced object is an ordinary value, kept unless the node overrides it.
 
 Arrays are ordinary values here, matched by the last row. If the referenced
 object holds `{"hosts": ["a", "b"]}` and the node holds `{"hosts": ["c"]}`, the
 merged result is `{"hosts": ["c"]}`. Array contents are never inspected and
 never combined, matching RFC 7396.
 
-When `$extend` lists several references, each is applied in order, and the
-node's own keys last. A document therefore overrides everything it extends. See
+When `$extend` lists several references, they are first combined into a single
+referenced object, left to right: objects merge recursively, and any other value
+from a later reference — `null` included — replaces the earlier one. The node's
+own keys are then applied by the table above. A document therefore overrides
+everything it extends. As mentioned above, only the node can delete a key. See
 also [Literal `null`](#literal-null).
 
 ### `$splice`
@@ -238,14 +251,16 @@ array, and its value is a reference string or an array of references.
 If the referenced array holds two elements, `middleware` above resolves to
 three.
 
-- Every reference must resolve to an array; anything else is an error.
+- Every reference must resolve to an array, or to `null`, which is treated as an
+  empty array. Anything else is an error.
 - Several references are spliced in the order listed, so
   `{"$splice": ["./a.json#/x", "./b.json#/y"]}` inserts both arrays' elements,
   one after the other.
-- An empty array contributes no elements, so a `$splice` whose references all
-  resolve to empty arrays removes the node.
-- A node containing `$splice` may contain no other key. Once the node is
-  replaced by several elements, there is nothing left to attach them to.
+- An empty array or `null` contributes no elements, so a `$splice` whose
+  references all resolve to either removes the node.
+- Like `$ref`, a node containing `$splice` may contain no other key. Once the
+  node is replaced by referenced elements, there is nothing left to attach them
+  to.
 
 To insert a referenced array as a _single_ element instead, use [`$ref`](#ref).
 
@@ -438,9 +453,11 @@ resolves to:
 { "cache": { "enabled": true, "ttl": 60 }, "debug": true }
 ```
 
-Three rules at once: references are applied in order, so `overlay.json` wins on
-`ttl` and `debug`; the node's own keys are applied last of all; and `null`
-removes `maxEntries` rather than setting it.
+Three rules at once: references are combined in order, so `overlay.json` wins on
+`ttl` and `debug`; the node's own keys are applied last of all; and because the
+`null` is written in the node, it removes `maxEntries` rather than setting it.
+Had `overlay.json` held that `null` instead, the result would keep
+`"maxEntries": null`.
 
 ## Part 2 — Resolving documents
 
@@ -471,6 +488,13 @@ document with no imports is unaffected, since nothing is merged.
 
 `$ref` is not subject to this, since replacement is not a merge: a `$ref` whose
 referenced value is `null` does indeed set the node to `null`.
+
+A reference that resolves to `null` is a separate matter: `$extend` treats it as
+an empty object and `$splice` as an empty array, so either contributes nothing.
+
+Only a `null` written in the node itself deletes. A `null` inside a referenced
+document is an ordinary value, whether that document is the first reference in
+an `$extend` list or the last.
 
 ### Anchor scope and collisions
 
@@ -579,6 +603,13 @@ a scheme that is not supported at all. The default matters because a remote
 document's own relative references stay remote, so one enabled reference can
 fetch many more.
 
+A document retrieved from a remote location **must not reference a local
+resource** — a `file` URI, or any other scheme that reads from the machine doing
+the resolving. Its relative references already stay remote, so the rule governs
+its absolute ones. Without it, a remote document could read local files and
+carry their contents into the resolved output. The restriction runs one way
+only: a local document may reference a remote one, subject to the rule above.
+
 Reference paths are URI paths. They use `/` as the separator on every platform,
 and are percent-decoded per RFC 3986 before use. An implementation reading from
 a filesystem is responsible for converting between file URIs and native paths.
@@ -633,14 +664,15 @@ one another.
 ### Errors
 
 - A reference that cannot be resolved, including one using a scheme the
-  implementation does not support
+  implementation does not support or the user has not enabled
+- A reference from a remote document to a local resource
 - A reference cycle, unless the implementation resolves into a graph (see
   [Cycles and memoization](#cycles-and-memoization)); the error should name the
   full chain
 - Duplicate `$anchor` within a resolved value; the error should give both paths,
   and say when one of them was imported
-- A value referenced by `$extend` that is not an object
-- A value referenced by `$splice` that is not an array
+- A value referenced by `$extend` that is neither an object nor `null`
+- A value referenced by `$splice` that is neither an array nor `null`
 - `$splice` on an object that is not an element of an array
 - Any key alongside `$ref` or `$splice`, including `$anchor`
 - A node containing both `$extend` and its synonym `$extends`
@@ -675,15 +707,16 @@ Composable JSON documents conventionally use the `.json` file extension.
 
 The format is assembled from existing specifications wherever one fits.
 
-| Concept         | Standard                       | Deviation                                            |
-| --------------- | ------------------------------ | ---------------------------------------------------- |
-| References      | RFC 3986 (URI Reference)       | None                                                 |
-| Node addressing | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form |
-| Anchors         | JSON Schema `$anchor`          | Same keyword and fragment form; no base URI support  |
-| Replacement     | JSON Reference (expired draft) | Sibling keys are an error rather than ignored        |
-| Merge semantics | RFC 7396 (JSON Merge Patch)    | Unmodified; `$extend` accepts only objects           |
-| Array splicing  | none                           | `$splice` has no standard counterpart                |
-| Escaping        | RFC 6901 §3 (`~0`, `~1`)       | None                                                 |
+| Concept              | Standard                       | Deviation                                                         |
+| -------------------- | ------------------------------ | ----------------------------------------------------------------- |
+| References           | RFC 3986 (URI Reference)       | None                                                              |
+| Node addressing      | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form              |
+| Anchors              | JSON Schema `$anchor`          | Same keyword and fragment form; no base URI support               |
+| Replacement          | JSON Reference (expired draft) | Sibling keys are an error rather than ignored                     |
+| Merge semantics      | RFC 7396 (JSON Merge Patch)    | Unmodified for the node's keys; targets must be objects or `null` |
+| Combining references | RFC 7396 (JSON Merge Patch)    | `null` is a value, not a deletion                                 |
+| Array splicing       | none                           | `$splice` has no standard counterpart                             |
+| Escaping             | RFC 6901 §3 (`~0`, `~1`)       | None                                                              |
 
 JSON Schema and JSON-LD both solve document identity and reference, but their
 machinery is far larger than this needs. Rather than subset either one, this
@@ -695,7 +728,7 @@ counterpart here. `$anchor` alone provides all the naming this format needs, and
 in consequence a document's base URI is always the location it was loaded from
 and cannot be moved by anything the document says.
 
-JsonRef v0.4.0 made the same break with JSON Schema independently, and its `$id`
+[JsonRef](http://jsonref.org/) v0.4.0 made the same break with JSON Schema independently, and its `$id`
 has exactly the role `$anchor` has here: it names a node without moving the base
 URI, and its fragment forms are the ones above. This specification keeps
 `$anchor` because JSON Schema, by far the more widely used of the two, gives
