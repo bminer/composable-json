@@ -1,0 +1,139 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$ref replaces a node with the referenced value",
+	"spec": "../../SPEC.md#ref",
+	"tests": [
+		{
+			"description": "replaces the node with a value from another document",
+			"documents": {
+				"main.json": {
+					"name": "uploader",
+					"attempts": { "$ref": "./defaults.json#/retry/attempts" }
+				},
+				"defaults.json": {
+					"retry": { "attempts": 3, "backoff": "exponential" }
+				}
+			},
+			"expected": { "name": "uploader", "attempts": 3 }
+		},
+		{
+			"description": "references a whole document",
+			"documents": {
+				"main.json": { "retry": { "$ref": "./defaults.json" } },
+				"defaults.json": { "attempts": 3 }
+			},
+			"expected": { "retry": { "attempts": 3 } }
+		},
+		{
+			"description": "inserts a referenced array as a single value",
+			"documents": {
+				"main.json": { "hosts": { "$ref": "./hosts.json#/primary" } },
+				"hosts.json": { "primary": ["a", "b"] }
+			},
+			"expected": { "hosts": ["a", "b"] }
+		},
+		{
+			"description": "references a value in the same document",
+			"documents": {
+				"main.json": { "port": 8080, "healthcheckPort": { "$ref": "#/port" } }
+			},
+			"expected": { "port": 8080, "healthcheckPort": 8080 }
+		},
+		{
+			"description": "sets the node to null when the target is null",
+			"documents": {
+				"main.json": { "value": { "$ref": "./nothing.json" } },
+				"nothing.json": null
+			},
+			"expected": { "value": null }
+		},
+		{
+			"description": "replaces the root of the document",
+			"documents": {
+				"main.json": { "$ref": "./base.json" },
+				"base.json": { "a": 1 }
+			},
+			"expected": { "a": 1 }
+		},
+		{
+			"description": "resolves references inside the target before copying it",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/v" } },
+				"a.json": { "v": { "$ref": "./b.json#/w" } },
+				"b.json": { "w": 5 }
+			},
+			"expected": { "x": 5 }
+		},
+		{
+			"description": "follows a chain of references within one document",
+			"documents": {
+				"main.json": { "a": { "$ref": "#/b" }, "b": { "$ref": "#/c" }, "c": 1 }
+			},
+			"expected": { "a": 1, "b": 1, "c": 1 }
+		},
+		{
+			"description": "steps through a $ref node on the way to the target",
+			"documents": {
+				"main.json": { "p": { "$ref": "./a.json#/cfg/port" } },
+				"a.json": { "cfg": { "$ref": "./b.json" } },
+				"b.json": { "port": 1 }
+			},
+			"expected": { "p": 1 }
+		},
+		{
+			"description": "rejects a sibling key",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json", "y": 1 } },
+				"a.json": {}
+			},
+			"error": "sibling-keys"
+		},
+		{
+			"description": "rejects $anchor alongside $ref",
+			"documents": {
+				"main.json": { "x": { "$anchor": "x", "$ref": "./a.json" } },
+				"a.json": {}
+			},
+			"error": "sibling-keys"
+		},
+		{
+			"description": "rejects $comment alongside $ref",
+			"documents": {
+				"main.json": { "x": { "$comment": "note", "$ref": "./a.json" } },
+				"a.json": {}
+			},
+			"error": "sibling-keys"
+		},
+		{
+			"description": "rejects an array value",
+			"documents": {
+				"main.json": { "x": { "$ref": ["./a.json"] } },
+				"a.json": {}
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a missing document",
+			"documents": {
+				"main.json": { "x": { "$ref": "./missing.json" } }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects a pointer to a missing key",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/nope" } },
+				"a.json": { "yes": 1 }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects a pointer past the end of an array",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/list/1" } },
+				"a.json": { "list": [1] }
+			},
+			"error": "unresolvable-reference"
+		}
+	]
+}

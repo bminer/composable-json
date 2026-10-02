@@ -1,0 +1,52 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "Every document must be valid JSON with unique keys",
+	"spec": "../../SPEC.md#errors",
+	"tests": [
+		{
+			"description": "rejects invalid JSON",
+			"rawDocuments": {
+				"main.json": "{ \"a\": 1, }"
+			},
+			"error": "invalid-json"
+		},
+		{
+			"description": "rejects a referenced document that is not JSON",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.yaml" } }
+			},
+			"rawDocuments": {
+				"a.yaml": "a: 1\n"
+			},
+			"error": "invalid-json"
+		},
+		{
+			"description": "rejects duplicate keys",
+			"rawDocuments": {
+				"main.json": "{ \"a\": 1, \"a\": 2 }"
+			},
+			"error": "duplicate-key"
+		},
+		{
+			"description": "rejects a duplicated directive",
+			"documents": {
+				"a.json": { "x": 1 },
+				"b.json": { "y": 2 }
+			},
+			"rawDocuments": {
+				"main.json": "{ \"$extend\": \"./a.json\", \"$extend\": \"./b.json\" }"
+			},
+			"error": "duplicate-key"
+		},
+		{
+			"description": "rejects duplicate keys in a referenced document",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json" } }
+			},
+			"rawDocuments": {
+				"a.json": "{ \"k\": 1, \"k\": 2 }"
+			},
+			"error": "duplicate-key"
+		}
+	]
+}

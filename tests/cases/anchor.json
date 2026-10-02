@@ -1,0 +1,282 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$anchor names a node, and names must not collide",
+	"spec": "../../SPEC.md#anchor-scope-and-collisions",
+	"tests": [
+		{
+			"description": "finds a node by anchor in another document",
+			"documents": {
+				"main.json": { "x": { "$ref": "./roster.json#oncall/members/1" } },
+				"roster.json": {
+					"title": "Rotations",
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+				}
+			},
+			"expected": { "x": "bo" }
+		},
+		{
+			"description": "keeps the anchor on a copied node",
+			"documents": {
+				"main.json": { "team": { "$ref": "./roster.json#oncall" } },
+				"roster.json": {
+					"title": "Rotations",
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+				}
+			},
+			"expected": {
+				"team": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+			}
+		},
+		{
+			"description": "finds an anchor on the root",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#top/k" } },
+				"a.json": { "$anchor": "top", "k": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "lets a document reuse a name whose node did not travel",
+			"documents": {
+				"main.json": {
+					"local": { "$anchor": "oncall", "members": ["dee"] },
+					"second": { "$ref": "./roster.json#oncall/members/1" }
+				},
+				"roster.json": {
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+				}
+			},
+			"expected": {
+				"local": { "$anchor": "oncall", "members": ["dee"] },
+				"second": "bo"
+			}
+		},
+		{
+			"description": "rejects a name that travels into a document that already has it",
+			"documents": {
+				"main.json": {
+					"local": { "$anchor": "oncall", "members": ["dee"] },
+					"team": { "$ref": "./roster.json#oncall" }
+				},
+				"roster.json": {
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+				}
+			},
+			"error": "duplicate-anchor"
+		},
+		{
+			"description": "rejects copying an anchored node within its own document",
+			"documents": {
+				"main.json": {
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo"] },
+					"backup": { "$ref": "#oncall" }
+				}
+			},
+			"error": "duplicate-anchor"
+		},
+		{
+			"description": "merges nodes at the same position without a collision",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"limits": { "memory": "1Gi" }
+				},
+				"base.json": { "limits": { "$anchor": "resourceLimits", "cpu": 2 } }
+			},
+			"expected": {
+				"limits": { "$anchor": "resourceLimits", "cpu": 2, "memory": "1Gi" }
+			}
+		},
+		{
+			"description": "rejects the same name at different positions",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"requests": { "$anchor": "resourceLimits", "cpu": 1 }
+				},
+				"base.json": { "limits": { "$anchor": "resourceLimits", "cpu": 2 } }
+			},
+			"error": "duplicate-anchor"
+		},
+		{
+			"description": "rejects importing a named node twice",
+			"documents": {
+				"main.json": {
+					"a": { "$extend": "./common.json#rateLimit" },
+					"b": { "$extend": "./common.json#rateLimit" }
+				},
+				"common.json": {
+					"middleware": [
+						{ "$anchor": "rateLimit", "perMinute": 60, "burst": 10 }
+					]
+				}
+			},
+			"error": "duplicate-anchor"
+		},
+		{
+			"description": "allows importing a named node twice when one copy is renamed",
+			"documents": {
+				"main.json": {
+					"a": { "$extend": "./common.json#rateLimit" },
+					"b": {
+						"$anchor": "rateLimitInternal",
+						"$extend": "./common.json#rateLimit",
+						"perMinute": 6000
+					}
+				},
+				"common.json": {
+					"middleware": [
+						{ "$anchor": "rateLimit", "perMinute": 60, "burst": 10 }
+					]
+				}
+			},
+			"expected": {
+				"a": { "$anchor": "rateLimit", "perMinute": 60, "burst": 10 },
+				"b": { "$anchor": "rateLimitInternal", "perMinute": 6000, "burst": 10 }
+			}
+		},
+		{
+			"description": "finds an anchor that arrived through an import",
+			"documents": {
+				"main.json": {
+					"middleware": [{ "$splice": "./common.json#/middleware" }],
+					"limit": { "$ref": "#rateLimit/perMinute" }
+				},
+				"common.json": {
+					"middleware": [
+						{ "$anchor": "rateLimit", "perMinute": 60, "burst": 10 }
+					]
+				}
+			},
+			"expected": {
+				"middleware": [
+					{ "$anchor": "rateLimit", "perMinute": 60, "burst": 10 }
+				],
+				"limit": 60
+			}
+		},
+		{
+			"description": "finds an imported anchor merged with the document's own keys",
+			"documents": {
+				"main.json": {
+					"$extend": "./common.json",
+					"limits": { "cpu": 4 },
+					"jobCpu": { "$ref": "#limits/cpu" }
+				},
+				"common.json": {
+					"limits": { "$anchor": "limits", "cpu": 2, "memory": 1 }
+				}
+			},
+			"expected": {
+				"limits": { "$anchor": "limits", "cpu": 4, "memory": 1 },
+				"jobCpu": 4
+			}
+		},
+		{
+			"description": "lets another document use an imported anchor",
+			"root": "other.json",
+			"documents": {
+				"other.json": {
+					"limit": { "$ref": "./main.json#rateLimit/perMinute" }
+				},
+				"main.json": {
+					"middleware": [{ "$splice": "./common.json#/middleware" }]
+				},
+				"common.json": {
+					"middleware": [
+						{ "$anchor": "rateLimit", "perMinute": 60, "burst": 10 }
+					]
+				}
+			},
+			"expected": { "limit": 60 }
+		},
+		{
+			"description": "rejects an imported anchor whose import needs the node looking it up",
+			"documents": {
+				"main.json": {
+					"middleware": [{ "$splice": "./common.json#/middleware" }],
+					"limit": { "$ref": "#rateLimit/perMinute" }
+				},
+				"common.json": {
+					"middleware": [
+						{
+							"$anchor": "rateLimit",
+							"perMinute": { "$ref": "./main.json#/limit" }
+						}
+					]
+				}
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a name that is neither written nor imported",
+			"documents": {
+				"main.json": {
+					"middleware": [{ "$splice": "./common.json#/middleware" }],
+					"limit": { "$ref": "#nope/perMinute" }
+				},
+				"common.json": {
+					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
+				}
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "finds a written anchor without resolving the node that refers to it",
+			"documents": {
+				"main.json": {
+					"limits": { "$anchor": "limits", "cpu": 2 },
+					"job": {
+						"$extend": "./job-base.json",
+						"cpu": { "$ref": "#limits/cpu" }
+					}
+				},
+				"job-base.json": { "image": "app" }
+			},
+			"expected": {
+				"limits": { "$anchor": "limits", "cpu": 2 },
+				"job": { "image": "app", "cpu": 2 }
+			}
+		},
+		{
+			"description": "rejects an anchor written inside $defs",
+			"documents": {
+				"main.json": { "$defs": { "x": { "$anchor": "x", "k": 1 } } }
+			},
+			"error": "anchor-in-defs"
+		},
+		{
+			"description": "rejects an anchor brought into $defs by a reference",
+			"documents": {
+				"main.json": {
+					"$defs": { "mw": [{ "$splice": "./common.json#/middleware" }] }
+				},
+				"common.json": {
+					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
+				}
+			},
+			"error": "anchor-in-defs"
+		},
+		{
+			"description": "rejects a name starting with a digit",
+			"documents": {
+				"main.json": { "x": { "$anchor": "1st", "k": 1 } }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a name containing a slash",
+			"documents": {
+				"main.json": { "x": { "$anchor": "a/b", "k": 1 } }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a non-string name",
+			"documents": {
+				"main.json": { "x": { "$anchor": 1, "k": 1 } }
+			},
+			"error": "malformed-directive"
+		}
+	]
+}

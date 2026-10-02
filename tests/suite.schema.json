@@ -1,0 +1,91 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Composable JSON test file",
+	"type": "object",
+	"required": ["description", "tests"],
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"description": { "type": "string" },
+		"spec": {
+			"description": "Link to the section of the specification under test",
+			"type": "string"
+		},
+		"tests": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/test" }
+		}
+	},
+	"$defs": {
+		"test": {
+			"type": "object",
+			"required": ["description"],
+			"additionalProperties": false,
+			"properties": {
+				"description": { "type": "string" },
+				"documents": {
+					"description": "Documents by URI reference, resolved against file:///suite/; each value is the document's JSON content",
+					"type": "object"
+				},
+				"rawDocuments": {
+					"description": "Documents by URI reference, given as raw text, for content that is not valid JSON",
+					"type": "object",
+					"additionalProperties": { "type": "string" }
+				},
+				"root": {
+					"description": "The document to resolve",
+					"type": "string",
+					"default": "main.json"
+				},
+				"options": { "$ref": "#/$defs/options" },
+				"expected": {
+					"description": "The resolved output"
+				},
+				"error": { "$ref": "#/$defs/error" }
+			},
+			"oneOf": [{ "required": ["expected"] }, { "required": ["error"] }]
+		},
+		"options": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"remote": {
+					"description": "Enable the http and https schemes",
+					"type": "boolean",
+					"default": false
+				},
+				"hostDirectives": {
+					"description": "Directives the host format declares",
+					"type": "array",
+					"items": { "type": "string", "pattern": "^\\$" }
+				},
+				"noBaseURI": {
+					"description": "Supply the root document as text, without a base URI",
+					"type": "boolean",
+					"default": false
+				}
+			}
+		},
+		"error": {
+			"enum": [
+				"invalid-json",
+				"duplicate-key",
+				"unresolvable-reference",
+				"missing-base-uri",
+				"remote-to-local",
+				"cycle",
+				"duplicate-anchor",
+				"anchor-in-defs",
+				"extend-type",
+				"splice-type",
+				"splice-position",
+				"sibling-keys",
+				"extend-synonym-conflict",
+				"empty-references",
+				"malformed-directive",
+				"unknown-directive"
+			]
+		}
+	}
+}

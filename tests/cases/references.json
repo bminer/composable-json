@@ -1,0 +1,174 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "Reference syntax, base URIs, schemes and encoding",
+	"spec": "../../SPEC.md#references",
+	"tests": [
+		{
+			"description": "resolves a JSON Pointer into an array",
+			"documents": {
+				"main.json": { "x": { "$ref": "./roster.json#/primary/members/1" } },
+				"roster.json": { "primary": { "members": ["ana", "bo", "cy"] } }
+			},
+			"expected": { "x": "bo" }
+		},
+		{
+			"description": "reads an empty fragment as the whole document",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#" } },
+				"a.json": { "k": 1 }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
+			"description": "unescapes ~1 and ~0 in reference tokens",
+			"documents": {
+				"main.json": {
+					"p": { "$ref": "./a.json#/a~1b" },
+					"q": { "$ref": "./a.json#/m~0n" }
+				},
+				"a.json": { "a/b": 1, "m~n": 2 }
+			},
+			"expected": { "p": 1, "q": 2 }
+		},
+		{
+			"description": "percent-decodes reference tokens, including an encoded #",
+			"documents": {
+				"main.json": {
+					"r": { "$ref": "./a.json#/c%20d" },
+					"s": { "$ref": "./a.json#/e%23f" }
+				},
+				"a.json": { "c d": 3, "e#f": 4 }
+			},
+			"expected": { "r": 3, "s": 4 }
+		},
+		{
+			"description": "resolves a percent-encoded path",
+			"documents": {
+				"main.json": { "x": { "$ref": "./sub%20dir/a.json#/k" } },
+				"sub%20dir/a.json": { "k": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "resolves a relative reference against the document that contains it",
+			"documents": {
+				"main.json": { "v": { "$ref": "./sub/a.json#/x" } },
+				"sub/a.json": { "x": { "$ref": "./b.json#/y" } },
+				"sub/b.json": { "y": 1 },
+				"b.json": { "y": 2 }
+			},
+			"expected": { "v": 1 }
+		},
+		{
+			"description": "resolves ../ segments",
+			"root": "app/main.json",
+			"documents": {
+				"app/main.json": { "x": { "$ref": "../shared/a.json#/k" } },
+				"shared/a.json": { "k": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "accepts an absolute file URI",
+			"documents": {
+				"main.json": { "x": { "$ref": "file:///suite/a.json#/k" } },
+				"a.json": { "k": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "resolves an anchor followed by a pointer",
+			"documents": {
+				"main.json": { "x": { "$ref": "./roster.json#oncall/members/1" } },
+				"roster.json": {
+					"title": "Rotations",
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo", "cy"] }
+				}
+			},
+			"expected": { "x": "bo" }
+		},
+		{
+			"description": "accepts dots, hyphens and underscores in anchor names",
+			"documents": {
+				"main.json": { "p": { "$ref": "./a.json#_svc.v1-blue/port" } },
+				"a.json": { "svc": { "$anchor": "_svc.v1-blue", "port": 80 } }
+			},
+			"expected": { "p": 80 }
+		},
+		{
+			"description": "rejects an unknown anchor",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#nope" } },
+				"a.json": { "k": 1 }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects an unsupported scheme",
+			"documents": {
+				"main.json": { "x": { "$ref": "x-unsupported:a.json" } }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects a remote reference unless remote schemes are enabled",
+			"documents": {
+				"main.json": { "x": { "$ref": "https://example.com/a.json" } },
+				"https://example.com/a.json": { "k": 1 }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "lets a local document reference a remote one when enabled",
+			"options": { "remote": true },
+			"documents": {
+				"main.json": { "x": { "$ref": "https://example.com/a.json" } },
+				"https://example.com/a.json": { "k": 1 }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
+			"description": "keeps a remote document's relative references remote",
+			"options": { "remote": true },
+			"root": "https://example.com/config/main.json",
+			"documents": {
+				"https://example.com/config/main.json": {
+					"x": { "$ref": "./common.json" }
+				},
+				"https://example.com/config/common.json": { "from": "remote" },
+				"config/common.json": { "from": "local" },
+				"common.json": { "from": "local" }
+			},
+			"expected": { "x": { "from": "remote" } }
+		},
+		{
+			"description": "rejects a remote document that references a local file",
+			"options": { "remote": true },
+			"root": "https://example.com/main.json",
+			"documents": {
+				"https://example.com/main.json": {
+					"x": { "$ref": "file:///suite/secret.json" }
+				},
+				"secret.json": { "token": "local-only" }
+			},
+			"error": "remote-to-local"
+		},
+		{
+			"description": "resolves fragment-only references without a base URI",
+			"options": { "noBaseURI": true },
+			"documents": {
+				"main.json": { "a": 1, "b": { "$ref": "#/a" } }
+			},
+			"expected": { "a": 1, "b": 1 }
+		},
+		{
+			"description": "rejects other relative references without a base URI",
+			"options": { "noBaseURI": true },
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json" } },
+				"a.json": {}
+			},
+			"error": "missing-base-uri"
+		}
+	]
+}

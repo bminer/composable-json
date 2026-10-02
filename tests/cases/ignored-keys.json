@@ -1,0 +1,108 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$comment, $schema and the reserved $id are ignored when resolving",
+	"spec": "../../SPEC.md#comment",
+	"tests": [
+		{
+			"description": "retains $comment",
+			"documents": {
+				"main.json": { "$comment": "note", "a": 1 }
+			},
+			"expected": { "$comment": "note", "a": 1 }
+		},
+		{
+			"description": "keeps the $comment of an extended document",
+			"documents": {
+				"main.json": { "$extend": "./base.json" },
+				"base.json": { "$comment": "base note", "a": 1 }
+			},
+			"expected": { "$comment": "base note", "a": 1 }
+		},
+		{
+			"description": "rejects a non-string $comment",
+			"documents": {
+				"main.json": { "$comment": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "retains $schema without retrieving it",
+			"documents": {
+				"main.json": { "$schema": "./does-not-exist.schema.json", "a": 1 }
+			},
+			"expected": { "$schema": "./does-not-exist.schema.json", "a": 1 }
+		},
+		{
+			"description": "retains $schema written anywhere in the top-level document",
+			"documents": {
+				"main.json": { "a": { "$schema": "./a.schema.json", "k": 1 } }
+			},
+			"expected": { "a": { "$schema": "./a.schema.json", "k": 1 } }
+		},
+		{
+			"description": "drops the $schema of an extended document",
+			"documents": {
+				"main.json": {
+					"$schema": "./main.schema.json",
+					"$extend": "./base.json"
+				},
+				"base.json": { "$schema": "./base.schema.json", "x": 1 }
+			},
+			"expected": { "$schema": "./main.schema.json", "x": 1 }
+		},
+		{
+			"description": "drops the $schema of an extended document when the top-level document has none",
+			"documents": {
+				"main.json": { "$extend": "./base.json" },
+				"base.json": { "$schema": "./base.schema.json", "x": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "drops a $schema nested inside a referenced value",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/v" } },
+				"a.json": { "v": { "$schema": "./v.schema.json", "k": 1 } }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
+			"description": "rejects a non-string $schema",
+			"documents": {
+				"main.json": { "$schema": true }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "ignores and retains $id",
+			"documents": {
+				"main.json": { "$id": "https://example.com/x", "a": 1 }
+			},
+			"expected": { "$id": "https://example.com/x", "a": 1 }
+		},
+		{
+			"description": "does not let $id change the base URI",
+			"options": { "remote": true },
+			"documents": {
+				"main.json": {
+					"$id": "https://example.com/other/",
+					"x": { "$ref": "./a.json" }
+				},
+				"a.json": { "from": "local" },
+				"https://example.com/other/a.json": { "from": "remote" }
+			},
+			"expected": {
+				"$id": "https://example.com/other/",
+				"x": { "from": "local" }
+			}
+		},
+		{
+			"description": "keeps the $id of an extended document",
+			"documents": {
+				"main.json": { "$extend": "./base.json" },
+				"base.json": { "$id": "base", "x": 1 }
+			},
+			"expected": { "$id": "base", "x": 1 }
+		}
+	]
+}

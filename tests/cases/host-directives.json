@@ -1,0 +1,70 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "The $ namespace is reserved; unknown directives are errors",
+	"spec": "../../SPEC.md#host-directives",
+	"tests": [
+		{
+			"description": "rejects a misspelled directive",
+			"documents": {
+				"main.json": { "$extned": "./base.json", "a": 1 },
+				"base.json": {}
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "rejects an unknown directive deep inside a document",
+			"documents": {
+				"main.json": { "a": { "b": [{ "$include": "./x.json" }] } }
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "rejects a key that is only $",
+			"documents": {
+				"main.json": { "$": 1 }
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "rejects JSON Schema keywords this specification does not define",
+			"documents": {
+				"main.json": { "$dynamicRef": "#node" }
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "rejects an unknown directive inside a referenced value",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json" } },
+				"a.json": { "$oops": 1 }
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "passes a declared host directive through untouched",
+			"options": { "hostDirectives": ["$env"] },
+			"documents": {
+				"main.json": { "port": { "$env": "PORT" } }
+			},
+			"expected": { "port": { "$env": "PORT" } }
+		},
+		{
+			"description": "rejects an undeclared directive alongside declared ones",
+			"options": { "hostDirectives": ["$env"] },
+			"documents": {
+				"main.json": {
+					"port": { "$env": "PORT" },
+					"key": { "$secret": "API_KEY" }
+				}
+			},
+			"error": "unknown-directive"
+		},
+		{
+			"description": "ignores $ in values",
+			"documents": {
+				"main.json": { "price": "$5", "tags": ["$a", "$ref"] }
+			},
+			"expected": { "price": "$5", "tags": ["$a", "$ref"] }
+		}
+	]
+}

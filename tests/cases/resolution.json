@@ -1,0 +1,153 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "Resolution order: what a reference needs, and cycles",
+	"spec": "../../SPEC.md#resolution-order",
+	"tests": [
+		{
+			"description": "references an inherited value from inside the same document",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"server": { "tls": true },
+					"healthcheck": { "port": { "$ref": "#/server/port" } }
+				},
+				"base.json": { "server": { "host": "0.0.0.0", "port": 8080 } }
+			},
+			"expected": {
+				"server": { "host": "0.0.0.0", "port": 8080, "tls": true },
+				"healthcheck": { "port": 8080 }
+			}
+		},
+		{
+			"description": "lets two documents reference each other (first document)",
+			"root": "a.json",
+			"documents": {
+				"a.json": { "name": "a", "peer": { "$ref": "./b.json#/name" } },
+				"b.json": { "name": "b", "peer": { "$ref": "./a.json#/name" } }
+			},
+			"expected": { "name": "a", "peer": "b" }
+		},
+		{
+			"description": "lets two documents reference each other (second document)",
+			"root": "b.json",
+			"documents": {
+				"a.json": { "name": "a", "peer": { "$ref": "./b.json#/name" } },
+				"b.json": { "name": "b", "peer": { "$ref": "./a.json#/name" } }
+			},
+			"expected": { "name": "b", "peer": "a" }
+		},
+		{
+			"description": "counts array indexes after splicing",
+			"documents": {
+				"main.json": {
+					"list": [{ "$splice": "./a.json" }, "c"],
+					"last": { "$ref": "#/list/2" }
+				},
+				"a.json": ["a", "b"]
+			},
+			"expected": { "list": ["a", "b", "c"], "last": "c" }
+		},
+		{
+			"description": "selects a key another document inherited",
+			"documents": {
+				"main.json": { "host": { "$ref": "./staging.json#/server/host" } },
+				"staging.json": { "$extend": "./base.json", "server": { "port": 2 } },
+				"base.json": { "server": { "host": "h", "port": 1 } }
+			},
+			"expected": { "host": "h" }
+		},
+		{
+			"description": "ignores parts of a referenced document the reference does not need",
+			"documents": {
+				"main.json": { "port": { "$ref": "./a.json#/good" } },
+				"a.json": {
+					"good": 8080,
+					"bad": { "$ref": "./missing.json" },
+					"$oops": 1
+				}
+			},
+			"expected": { "port": 8080 }
+		},
+		{
+			"description": "resolves a document imported along two paths",
+			"documents": {
+				"main.json": { "$extend": ["./b.json", "./c.json"] },
+				"b.json": { "$extend": "./d.json", "b": true },
+				"c.json": { "$extend": "./d.json", "c": true },
+				"d.json": { "v": 1 }
+			},
+			"expected": { "v": 1, "b": true, "c": true }
+		},
+		{
+			"description": "rejects two nodes that extend each other",
+			"documents": {
+				"main.json": { "a": { "$extend": "#/b" }, "b": { "$extend": "#/a" } }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a node that extends its own ancestor",
+			"documents": {
+				"main.json": { "$anchor": "x", "tasks": [{ "$extend": "#x" }] }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a cycle across documents",
+			"root": "a.json",
+			"documents": {
+				"a.json": { "p": { "$ref": "./b.json#/q" } },
+				"b.json": { "q": { "$ref": "./a.json#/p" } }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a node that references itself",
+			"documents": {
+				"main.json": { "a": { "$ref": "#/a" } }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a reference to the whole containing document",
+			"documents": {
+				"main.json": { "a": { "$ref": "#" } }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a document that extends itself",
+			"documents": {
+				"main.json": { "$extend": "./main.json", "a": 1 }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects an array that splices itself",
+			"documents": {
+				"main.json": { "list": [{ "$splice": "#/list" }] }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a key that refers to itself through an inherited object",
+			"documents": {
+				"main.json": {
+					"a": { "$extend": "./b.json", "k": { "$ref": "#/a/k" } }
+				},
+				"b.json": { "k": 1 }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "rejects a step into an $extend object that needs the referencing node",
+			"documents": {
+				"main.json": {
+					"a": { "$extend": "#/b", "k": 1 },
+					"b": { "x": { "$ref": "#/a/k" } }
+				}
+			},
+			"error": "cycle"
+		}
+	]
+}

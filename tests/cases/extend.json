@@ -1,0 +1,267 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$extend merges referenced objects under a node's own keys",
+	"spec": "../../SPEC.md#extend",
+	"tests": [
+		{
+			"description": "merges objects key by key, to any depth",
+			"documents": {
+				"main.json": {
+					"$extend": "./service.base.json",
+					"server": { "tls": true },
+					"logging": { "level": "debug" },
+					"database": { "host": "db.staging.internal" }
+				},
+				"service.base.json": {
+					"server": { "host": "0.0.0.0", "port": 8080, "tls": false },
+					"logging": { "level": "info", "format": "json" },
+					"database": { "host": "localhost", "port": 5432, "poolSize": 10 }
+				}
+			},
+			"expected": {
+				"server": { "host": "0.0.0.0", "port": 8080, "tls": true },
+				"logging": { "level": "debug", "format": "json" },
+				"database": {
+					"host": "db.staging.internal",
+					"port": 5432,
+					"poolSize": 10
+				}
+			}
+		},
+		{
+			"description": "replaces arrays rather than merging them",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "hosts": ["c"] },
+				"base.json": { "hosts": ["a", "b"], "port": 1 }
+			},
+			"expected": { "hosts": ["c"], "port": 1 }
+		},
+		{
+			"description": "uses the node's scalar over a referenced object",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "x": 1 },
+				"base.json": { "x": { "y": 2 } }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "uses the node's object over a referenced scalar",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "x": { "y": 2 } },
+				"base.json": { "x": 1 }
+			},
+			"expected": { "x": { "y": 2 } }
+		},
+		{
+			"description": "deletes a key the node sets to null",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "b": null },
+				"base.json": { "a": 1, "b": 2 }
+			},
+			"expected": { "a": 1 }
+		},
+		{
+			"description": "deletes a nested key the node sets to null",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "a": { "c": null } },
+				"base.json": { "a": { "b": 1, "c": 2 } }
+			},
+			"expected": { "a": { "b": 1 } }
+		},
+		{
+			"description": "omits a null for a key the reference lacks",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "z": null },
+				"base.json": { "a": 1 }
+			},
+			"expected": { "a": 1 }
+		},
+		{
+			"description": "keeps a null inside the referenced object",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "b": 2 },
+				"base.json": { "a": null, "b": 1 }
+			},
+			"expected": { "a": null, "b": 2 }
+		},
+		{
+			"description": "combines several references left to right, then applies the node",
+			"documents": {
+				"main.json": {
+					"$extend": ["./defaults.json", "./overlay.json"],
+					"cache": { "maxEntries": null }
+				},
+				"defaults.json": {
+					"cache": { "enabled": true, "ttl": 300, "maxEntries": 5000 },
+					"debug": false
+				},
+				"overlay.json": { "cache": { "ttl": 60 }, "debug": true }
+			},
+			"expected": { "cache": { "enabled": true, "ttl": 60 }, "debug": true }
+		},
+		{
+			"description": "treats a null in a later reference as a value",
+			"documents": {
+				"main.json": { "$extend": ["./defaults.json", "./overlay.json"] },
+				"defaults.json": {
+					"cache": { "enabled": true, "ttl": 300, "maxEntries": 5000 },
+					"debug": false
+				},
+				"overlay.json": { "cache": { "maxEntries": null } }
+			},
+			"expected": {
+				"cache": { "enabled": true, "ttl": 300, "maxEntries": null },
+				"debug": false
+			}
+		},
+		{
+			"description": "lets a later reference's scalar replace an earlier object",
+			"documents": {
+				"main.json": { "$extend": ["./a.json", "./b.json"] },
+				"a.json": { "x": { "y": 1 } },
+				"b.json": { "x": 5 }
+			},
+			"expected": { "x": 5 }
+		},
+		{
+			"description": "lets a later reference's object replace an earlier scalar",
+			"documents": {
+				"main.json": { "$extend": ["./a.json", "./b.json"] },
+				"a.json": { "x": 5 },
+				"b.json": { "x": { "y": 1 } }
+			},
+			"expected": { "x": { "y": 1 } }
+		},
+		{
+			"description": "merges objects from several references recursively",
+			"documents": {
+				"main.json": { "$extend": ["./a.json", "./b.json"] },
+				"a.json": { "x": { "y": 1 } },
+				"b.json": { "x": { "z": 2 } }
+			},
+			"expected": { "x": { "y": 1, "z": 2 } }
+		},
+		{
+			"description": "treats a null reference as an empty object",
+			"documents": {
+				"main.json": { "$extend": "./nothing.json", "a": 1 },
+				"nothing.json": null
+			},
+			"expected": { "a": 1 }
+		},
+		{
+			"description": "extends a nested node",
+			"documents": {
+				"main.json": {
+					"db": { "$extend": "./db.json", "host": "db.internal" }
+				},
+				"db.json": { "host": "localhost", "port": 5432 }
+			},
+			"expected": { "db": { "host": "db.internal", "port": 5432 } }
+		},
+		{
+			"description": "extends one element of a referenced array by anchor",
+			"documents": {
+				"main.json": {
+					"middleware": [
+						{ "$extend": "./common.json#rateLimit", "perMinute": 600 }
+					]
+				},
+				"common.json": {
+					"middleware": [
+						{
+							"$anchor": "requestId",
+							"type": "requestId",
+							"header": "X-Request-Id"
+						},
+						{
+							"$anchor": "rateLimit",
+							"type": "rateLimit",
+							"perMinute": 60,
+							"burst": 10
+						}
+					]
+				}
+			},
+			"expected": {
+				"middleware": [
+					{
+						"$anchor": "rateLimit",
+						"type": "rateLimit",
+						"perMinute": 600,
+						"burst": 10
+					}
+				]
+			}
+		},
+		{
+			"description": "merges retained keys like any other",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "$comment": "node" },
+				"base.json": { "$comment": "base", "x": 1 }
+			},
+			"expected": { "$comment": "node", "x": 1 }
+		},
+		{
+			"description": "accepts $extends as a synonym",
+			"documents": {
+				"main.json": { "$extends": "./base.json", "b": 2 },
+				"base.json": { "a": 1 }
+			},
+			"expected": { "a": 1, "b": 2 }
+		},
+		{
+			"description": "rejects $extend and $extends together",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "$extends": "./base.json" },
+				"base.json": {}
+			},
+			"error": "extend-synonym-conflict"
+		},
+		{
+			"description": "rejects a referenced array",
+			"documents": {
+				"main.json": { "$extend": "./base.json" },
+				"base.json": [1]
+			},
+			"error": "extend-type"
+		},
+		{
+			"description": "rejects a referenced string",
+			"documents": {
+				"main.json": { "$extend": "./base.json#/s" },
+				"base.json": { "s": "x" }
+			},
+			"error": "extend-type"
+		},
+		{
+			"description": "rejects a reference that does not resolve",
+			"documents": {
+				"main.json": { "$extend": "./missing.json" }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects an empty list of references",
+			"documents": {
+				"main.json": { "$extend": [], "a": 1 }
+			},
+			"error": "empty-references"
+		},
+		{
+			"description": "rejects a value that is neither a string nor an array",
+			"documents": {
+				"main.json": { "$extend": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a non-string entry in the list",
+			"documents": {
+				"main.json": { "$extend": ["./a.json", 1] },
+				"a.json": {}
+			},
+			"error": "malformed-directive"
+		}
+	]
+}

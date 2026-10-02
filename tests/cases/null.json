@@ -1,0 +1,76 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "Only a null written in an $extend node deletes",
+	"spec": "../../SPEC.md#literal-null",
+	"tests": [
+		{
+			"description": "keeps a null in a document with no $extend",
+			"documents": {
+				"main.json": { "a": null, "b": { "c": null } }
+			},
+			"expected": { "a": null, "b": { "c": null } }
+		},
+		{
+			"description": "drops a written null where the reference has nothing to delete",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"cache": { "ttl": null, "size": 10 }
+				},
+				"base.json": { "name": "svc" }
+			},
+			"expected": { "name": "svc", "cache": { "size": 10 } }
+		},
+		{
+			"description": "passes through a null delivered by a nested $ref",
+			"documents": {
+				"main.json": {
+					"$extend": "./defaults.json",
+					"cache": { "$ref": "./nothing.json" }
+				},
+				"defaults.json": {
+					"cache": { "enabled": true, "ttl": 300, "maxEntries": 5000 },
+					"debug": false
+				},
+				"nothing.json": null
+			},
+			"expected": { "cache": null, "debug": false }
+		},
+		{
+			"description": "passes through a null delivered by a nested $extend",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"cache": { "$extend": "./x.json" }
+				},
+				"base.json": { "cache": { "ttl": 300 } },
+				"x.json": { "ttl": null }
+			},
+			"expected": { "cache": { "ttl": null } }
+		},
+		{
+			"description": "applies a deletion only to the $extend it is written under",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"cache": { "$extend": "./x.json", "ttl": null }
+				},
+				"base.json": { "cache": { "ttl": 300, "size": 1 } },
+				"x.json": { "ttl": 60, "mode": "lru" }
+			},
+			"expected": { "cache": { "ttl": 300, "size": 1, "mode": "lru" } }
+		},
+		{
+			"description": "keeps a null spliced into an array",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"list": [{ "$splice": "./a.json" }]
+				},
+				"base.json": { "k": 1 },
+				"a.json": [null, 1]
+			},
+			"expected": { "k": 1, "list": [null, 1] }
+		}
+	]
+}

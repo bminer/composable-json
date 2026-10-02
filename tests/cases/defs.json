@@ -1,0 +1,73 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$defs holds fragments referenced within a document",
+	"spec": "../../SPEC.md#defs",
+	"tests": [
+		{
+			"description": "supplies fragments and is retained in the output",
+			"documents": {
+				"main.json": {
+					"tasks": [
+						{ "$splice": "#/$defs/commonTasks" },
+						{ "$extend": "#/$defs/deploy", "env": "staging" }
+					],
+					"$defs": {
+						"commonTasks": [{ "run": "git checkout" }, { "run": "npm ci" }],
+						"deploy": { "run": "./deploy.sh" }
+					}
+				}
+			},
+			"expected": {
+				"tasks": [
+					{ "run": "git checkout" },
+					{ "run": "npm ci" },
+					{ "run": "./deploy.sh", "env": "staging" }
+				],
+				"$defs": {
+					"commonTasks": [{ "run": "git checkout" }, { "run": "npm ci" }],
+					"deploy": { "run": "./deploy.sh" }
+				}
+			}
+		},
+		{
+			"description": "lets another document reference into $defs",
+			"documents": {
+				"main.json": { "task": { "$ref": "./lib.json#/$defs/deploy" } },
+				"lib.json": { "$defs": { "deploy": { "run": "./deploy.sh" } } }
+			},
+			"expected": { "task": { "run": "./deploy.sh" } }
+		},
+		{
+			"description": "names a copy where it is made",
+			"documents": {
+				"main.json": {
+					"task": {
+						"$anchor": "deploy",
+						"$extend": "#/$defs/deploy",
+						"env": "staging"
+					},
+					"$defs": { "deploy": { "run": "./deploy.sh" } }
+				}
+			},
+			"expected": {
+				"task": { "$anchor": "deploy", "run": "./deploy.sh", "env": "staging" },
+				"$defs": { "deploy": { "run": "./deploy.sh" } }
+			}
+		},
+		{
+			"description": "merges $defs from an extended document",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "$defs": { "b": 2 } },
+				"base.json": { "$defs": { "a": 1 } }
+			},
+			"expected": { "$defs": { "a": 1, "b": 2 } }
+		},
+		{
+			"description": "rejects a value that is not an object",
+			"documents": {
+				"main.json": { "$defs": [] }
+			},
+			"error": "malformed-directive"
+		}
+	]
+}

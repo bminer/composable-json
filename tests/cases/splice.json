@@ -1,0 +1,175 @@
+{
+	"$schema": "../suite.schema.json",
+	"description": "$splice inserts referenced arrays' elements in its place",
+	"spec": "../../SPEC.md#splice",
+	"tests": [
+		{
+			"description": "inserts a referenced array's elements",
+			"documents": {
+				"main.json": {
+					"hosts": [{ "$splice": "./hosts.json#/primary" }, "c.example.com"]
+				},
+				"hosts.json": { "primary": ["a.example.com", "b.example.com"] }
+			},
+			"expected": {
+				"hosts": ["a.example.com", "b.example.com", "c.example.com"]
+			}
+		},
+		{
+			"description": "differs from $ref, which nests the array as one element",
+			"documents": {
+				"main.json": {
+					"spliced": [{ "$splice": "./hosts.json#/primary" }, "c.example.com"],
+					"nested": [{ "$ref": "./hosts.json#/primary" }, "c.example.com"]
+				},
+				"hosts.json": { "primary": ["a.example.com", "b.example.com"] }
+			},
+			"expected": {
+				"spliced": ["a.example.com", "b.example.com", "c.example.com"],
+				"nested": [["a.example.com", "b.example.com"], "c.example.com"]
+			}
+		},
+		{
+			"description": "splices several references in order",
+			"documents": {
+				"main.json": {
+					"list": [0, { "$splice": ["./a.json#/x", "./b.json#/y"] }, 4]
+				},
+				"a.json": { "x": [1, 2] },
+				"b.json": { "y": [3] }
+			},
+			"expected": { "list": [0, 1, 2, 3, 4] }
+		},
+		{
+			"description": "removes the node when every reference is empty or null",
+			"documents": {
+				"main.json": {
+					"list": [1, { "$splice": ["./empty.json", "./nothing.json"] }, 2]
+				},
+				"empty.json": [],
+				"nothing.json": null
+			},
+			"expected": { "list": [1, 2] }
+		},
+		{
+			"description": "splices into a root array",
+			"documents": {
+				"main.json": [{ "$splice": "./a.json" }, 3],
+				"a.json": [1, 2]
+			},
+			"expected": [1, 2, 3]
+		},
+		{
+			"description": "resolves directives inside spliced elements",
+			"documents": {
+				"main.json": { "x": [{ "$splice": "./a.json#/list" }] },
+				"a.json": { "list": [{ "$ref": "#/v" }], "v": 7 }
+			},
+			"expected": { "x": [7] }
+		},
+		{
+			"description": "splices an array that itself splices",
+			"documents": {
+				"main.json": { "x": [{ "$splice": "./a.json#/l" }, 4] },
+				"a.json": { "l": [1, { "$splice": "#/m" }], "m": [2, 3] }
+			},
+			"expected": { "x": [1, 2, 3, 4] }
+		},
+		{
+			"description": "keeps the anchors of spliced elements",
+			"documents": {
+				"main.json": {
+					"middleware": [
+						{ "$splice": "./common.json#/middleware" },
+						{ "type": "compress", "level": 6 }
+					]
+				},
+				"common.json": {
+					"middleware": [
+						{
+							"$anchor": "requestId",
+							"type": "requestId",
+							"header": "X-Request-Id"
+						},
+						{
+							"$anchor": "rateLimit",
+							"type": "rateLimit",
+							"perMinute": 60,
+							"burst": 10
+						}
+					]
+				}
+			},
+			"expected": {
+				"middleware": [
+					{
+						"$anchor": "requestId",
+						"type": "requestId",
+						"header": "X-Request-Id"
+					},
+					{
+						"$anchor": "rateLimit",
+						"type": "rateLimit",
+						"perMinute": 60,
+						"burst": 10
+					},
+					{ "type": "compress", "level": 6 }
+				]
+			}
+		},
+		{
+			"description": "rejects a referenced object",
+			"documents": {
+				"main.json": { "list": [{ "$splice": "./a.json" }] },
+				"a.json": { "k": 1 }
+			},
+			"error": "splice-type"
+		},
+		{
+			"description": "rejects a referenced scalar",
+			"documents": {
+				"main.json": { "list": [{ "$splice": "./a.json#/k" }] },
+				"a.json": { "k": 1 }
+			},
+			"error": "splice-type"
+		},
+		{
+			"description": "rejects $splice on an object that is not an array element",
+			"documents": {
+				"main.json": { "x": { "$splice": "./a.json" } },
+				"a.json": [1]
+			},
+			"error": "splice-position"
+		},
+		{
+			"description": "rejects $splice at the root",
+			"documents": {
+				"main.json": { "$splice": "./a.json" },
+				"a.json": [1]
+			},
+			"error": "splice-position"
+		},
+		{
+			"description": "rejects a sibling key",
+			"documents": {
+				"main.json": { "list": [{ "$splice": "./a.json", "x": 1 }] },
+				"a.json": [1]
+			},
+			"error": "sibling-keys"
+		},
+		{
+			"description": "rejects an empty list of references",
+			"documents": {
+				"main.json": { "list": [{ "$splice": [] }] }
+			},
+			"error": "empty-references"
+		},
+		{
+			"description": "rejects a value that is neither a string nor an array",
+			"documents": {
+				"main.json": { "list": [{ "$splice": {} }] }
+			},
+			"error": "malformed-directive"
+		}
+	]
+}
