@@ -1,13 +1,12 @@
 # Composable JSON
 
-Composable JSON defines a standard way for JSON documents (RFC 8259) to reuse or override values from other
-JSON documents.
+Composable JSON defines a standard way for JSON documents (RFC 8259) to reuse or
+override values from other JSON documents.
 
 Reuse is expressed with _directives_: object keys beginning with `$`, which are
 reserved for the purpose. A _resolver_ replaces each directive with the value it
-references, producing ordinary JSON. This specification defines six directives, the syntax of a reference, and how a
-resolver combines what it references. A specification built on this one may
-define more directives (see [Host directives](#host-directives)).
+references, producing ordinary JSON. This specification defines six directives,
+the syntax of a reference, and how a resolver combines what it references.
 
 ## Motivation
 
@@ -26,11 +25,6 @@ each is tied to a particular format or tool (see [Prior art](#prior-art)). This
 specification does that job for plain JSON: a Composable JSON document is still
 valid JSON that any parser will read.
 
-Nearly everything in this specification is assembled from existing
-specifications; see
-[Relationship to existing standards](#relationship-to-existing-standards) and
-[Prior art](#prior-art) for what was borrowed and what was not.
-
 ## Example
 
 Given `service.base.json`:
@@ -43,11 +37,11 @@ Given `service.base.json`:
 }
 ```
 
-a document that builds on it using the `$extends` directive:
+a document that builds on it using the `$extend` directive:
 
 ```json
 {
-	"$extends": "./service.base.json",
+	"$extend": "./service.base.json",
 	"server": { "tls": true },
 	"logging": { "level": "debug" },
 	"database": { "host": "db.staging.internal" }
@@ -73,14 +67,14 @@ Objects merge key by key, to any depth, and the importing document wins.
 | Directive  | Purpose                                              | Value                  |
 | ---------- | ---------------------------------------------------- | ---------------------- |
 | `$ref`     | replaces this node with the referenced value         | one reference          |
-| `$extends` | merges referenced objects under this node's own keys | one or more references |
+| `$extend`  | merges referenced objects under this node's own keys | one or more references |
 | `$splice`  | inserts referenced arrays' elements in its place     | one or more references |
 | `$anchor`  | names this node so that references can find it       | a name                 |
 | `$defs`    | holds fragments referenced within the document       | any object             |
 | `$comment` | records a note, ignored when resolving               | a string               |
 
-`$ref`, `$extends` and `$splice` are consumed during resolution and do not
-appear in the output. `$anchor`, `$defs` and `$comment` are retained.
+`$ref`, `$extend` and `$splice` are consumed during resolution and do not appear
+in the output. `$anchor`, `$defs` and `$comment` are retained.
 
 ### Host directives
 
@@ -89,19 +83,16 @@ A specification built on this one — a configuration format or a test format, s
 told which those are, and **errors on any `$`-prefixed key that neither it nor
 its host format declares.**
 
-Reserving the namespace rather than only the six defined keys is what makes that
-last rule possible, and it is worth the cost: a misspelled `$extend` resolves to
-a document that inherited nothing and reports no error, which is among the
-harder failures to diagnose from the output alone.
+Reserving the namespace rather than only the keys defined here is what makes
+that last rule possible, and it is worth the cost: a misspelled `$extned`
+resolves to a document that inherited nothing and reports no error, which is
+among the harder failures to diagnose from the output alone.
 
 Host directives are resolved by the host, not by this specification, and are
-therefore neither consumed nor interpreted here. During resolution they are
-ordinary keys: they merge like any other, so a host directive declared in a
-referenced document arrives intact in the document that extends it.
-
-A host should avoid names this specification might plausibly take later.
-`$import`, `$merge`, `$unset` and `$override` have all been considered, and so
-has `$id`, which may yet replace `$anchor` (see
+therefore neither consumed nor interpreted here. A host should avoid names this
+specification might plausibly take later. `$import`, `$merge`, `$delete` and
+`$override` have all been considered, and so has `$id`, which may yet replace
+`$anchor` (see
 [Relationship to existing standards](#relationship-to-existing-standards)).
 
 ### References
@@ -192,16 +183,21 @@ a pointer would break.
 An anchor is retained in the resolved output, so a name declared in one document
 remains addressable after that document is imported into another.
 
-### `$extends`
+### `$extend`
 
-`$extends` merges one or more referenced objects into the node that contains it.
-It is legal on any object, including one that is an element of an array, and its
-value is a reference string or an array of references. The [Overview](#overview)
-shows the common case.
+`$extend` combines one or more referenced objects with the node that contains
+it, the node's own keys taking precedence. It is legal on any object, including
+one that is an element of an array, and its value is a reference string or an
+array of references. The [Overview](#overview) shows the common case.
+
+`$extends` is accepted as a synonym, for familiarity with the `extends` key of
+tsconfig, ESLint and Docker Compose; it behaves identically. A node may use
+`$extend` or `$extends`, not both. Documents should prefer `$extend`, whose
+imperative form matches `$splice`.
 
 Every reference must resolve to an object. Anything else is an error: use
 [`$ref`](#ref) to take a value as it is, or [`$splice`](#splice) to insert an
-array's elements into an array. That restriction is the only way `$extends`
+array's elements into an array. That restriction is the only way `$extend`
 departs from RFC 7396, which accepts a value of any type.
 
 The merge itself follows RFC 7396, recursively at every key. The referenced
@@ -220,7 +216,7 @@ object holds `{"hosts": ["a", "b"]}` and the node holds `{"hosts": ["c"]}`, the
 merged result is `{"hosts": ["c"]}`. Array contents are never inspected and
 never combined, matching RFC 7396.
 
-When `$extends` lists several references, each is applied in order, and the
+When `$extend` lists several references, each is applied in order, and the
 node's own keys last. A document therefore overrides everything it extends. See
 also [Literal `null`](#literal-null).
 
@@ -255,14 +251,14 @@ To insert a referenced array as a _single_ element instead, use [`$ref`](#ref).
 
 Splicing is the only way to combine arrays, and has no counterpart in RFC 7396,
 which never combines them. To modify one element of a referenced array rather
-than take the whole sequence, reference that element with `$extends` — its
-target is an object, so sibling keys are allowed:
+than take the whole sequence, reference that element with `$extend` — its target
+is an object, so sibling keys are allowed:
 
 ```json
 {
 	"middleware": [
 		{
-			"$extends": "./middleware/common.json#rateLimit",
+			"$extend": "./middleware/common.json#rateLimit",
 			"perMinute": 600
 		}
 	]
@@ -278,7 +274,7 @@ within itself:
 {
 	"tasks": [
 		{ "$splice": "#/$defs/commonTasks" },
-		{ "$extends": "#/$defs/deploy", "env": "staging" }
+		{ "$extend": "#/$defs/deploy", "env": "staging" }
 	],
 	"$defs": {
 		"commonTasks": [{ "$anchor": "checkout", "run": "git checkout" }],
@@ -309,15 +305,14 @@ and the role are JSON Schema's.
 
 ### Choosing a directive
 
-| To                                            | Use                    |
-| --------------------------------------------- | ---------------------- |
-| take a value exactly as it is                 | [`$ref`](#ref)         |
-| build on an object and override parts of it   | [`$extends`](#extends) |
-| insert an array's elements into another array | [`$splice`](#splice)   |
+| To                                            | Use                  |
+| --------------------------------------------- | -------------------- |
+| take a value exactly as it is                 | [`$ref`](#ref)       |
+| build on an object and override parts of it   | [`$extend`](#extend) |
+| insert an array's elements into another array | [`$splice`](#splice) |
 
-Where `$extends` and `$ref` would both work — a referenced object with no
-sibling keys — they produce the same result, since merging with nothing is
-replacement.
+Where `$extend` and `$ref` would both work — a referenced object with no sibling
+keys — they produce the same result, since merging with nothing is replacement.
 
 In an array element, `$splice` inserts a referenced array's elements, while
 `$ref` inserts the array itself as one element; see
@@ -378,8 +373,8 @@ along the way:
 ```json
 {
 	"middleware": [
-		{ "$extends": "./middleware/common.json#requestId" },
-		{ "$extends": "./middleware/common.json#rateLimit", "perMinute": 600 },
+		{ "$extend": "./middleware/common.json#requestId" },
+		{ "$extend": "./middleware/common.json#rateLimit", "perMinute": 600 },
 		{ "type": "compress", "level": 6 }
 	]
 }
@@ -432,7 +427,7 @@ then:
 
 ```json
 {
-	"$extends": ["./defaults.json", "./overlay.json"],
+	"$extend": ["./defaults.json", "./overlay.json"],
 	"cache": { "maxEntries": null }
 }
 ```
@@ -454,7 +449,7 @@ removes `maxEntries` rather than setting it.
 Resolving a document means producing a single JSON value from it:
 
 1. Parse the document.
-2. Resolve its `$ref`, `$extends` and `$splice` directives depth first —
+2. Resolve its `$ref`, `$extend` and `$splice` directives depth first —
    innermost node first. For each reference: resolve the referenced document
    completely, select the fragment, then replace, merge or splice as that
    directive specifies.
@@ -471,7 +466,7 @@ node to resolve first, that node is resolved first.
 
 RFC 7396 gives `null` exactly one meaning: delete the key. A merge patch cannot
 set a value _to_ null. These semantics are adopted as written. In a document
-that uses `$extends`, a literal `null` therefore deletes rather than sets; a
+that uses `$extend`, a literal `null` therefore deletes rather than sets; a
 document with no imports is unaffected, since nothing is merged.
 
 `$ref` is not subject to this, since replacement is not a merge: a `$ref` whose
@@ -497,7 +492,7 @@ in the other two.
 
 The same holds for every directive that selects a fragment. Anchors inside the
 elements that `$splice` inserts travel into the containing document, exactly as
-those inside an object merged by `$extends` do.
+those inside an object merged by `$extend` do.
 
 #### `$anchor` does not affect merging
 
@@ -516,7 +511,7 @@ This is not a collision, because only one node exists in the result. Given
 then:
 
 ```json
-{ "$extends": "./base.json", "limits": { "memory": "1Gi" } }
+{ "$extend": "./base.json", "limits": { "memory": "1Gi" } }
 ```
 
 resolves to:
@@ -530,7 +525,7 @@ error, because the name no longer identifies one node:
 
 ```json
 {
-	"$extends": "./base.json",
+	"$extend": "./base.json",
 	"requests": { "$anchor": "resourceLimits", "cpu": 1 }
 }
 ```
@@ -548,13 +543,13 @@ one:
 ```json
 {
 	"$anchor": "rateLimitInternal",
-	"$extends": "./middleware/common.json#rateLimit",
+	"$extend": "./middleware/common.json#rateLimit",
 	"perMinute": 6000
 }
 ```
 
 This is the supported way to import the same named node twice. It works only
-with `$extends`, since `$ref` and `$splice` permit no sibling keys.
+with `$extend`, since `$ref` and `$splice` permit no sibling keys.
 
 ### Base URIs, schemes, and encoding
 
@@ -605,11 +600,11 @@ A reference that is already being resolved is a cycle. Detection operates on the
 same key, which catches all three shapes:
 
 ```json
-{ "a": { "$extends": "#/b" }, "b": { "$extends": "#/a" } }
+{ "a": { "$extend": "#/b" }, "b": { "$extend": "#/a" } }
 ```
 
 ```json
-{ "$anchor": "x", "tasks": [{ "$extends": "#x" }] }
+{ "$anchor": "x", "tasks": [{ "$extend": "#x" }] }
 ```
 
 ```text
@@ -631,7 +626,7 @@ inside a larger value points back at an enclosing one, as [JsonRef](#prior-art)
 does. This is discouraged. The result cannot be written back out as JSON, which
 is the point of this specification, and a document that relies on it resolves
 only with that implementation. Some cycles cannot resolve even then: those
-formed through `$extends` or `$splice`, which need the complete referenced value
+formed through `$extend` or `$splice`, which need the complete referenced value
 before they can produce their own, and loops of `$ref` nodes that refer only to
 one another.
 
@@ -644,10 +639,11 @@ one another.
   full chain
 - Duplicate `$anchor` within a resolved value; the error should give both paths,
   and say when one of them was imported
-- A value referenced by `$extends` that is not an object
+- A value referenced by `$extend` that is not an object
 - A value referenced by `$splice` that is not an array
 - `$splice` on an object that is not an element of an array
 - Any key alongside `$ref` or `$splice`, including `$anchor`
+- A node containing both `$extend` and its synonym `$extends`
 - A directive whose value is malformed or of the wrong type — an `$anchor` name
   that does not match its pattern, say, or a `$ref` given an array
 - A `$`-prefixed key defined by neither this specification nor the host format
@@ -685,7 +681,7 @@ The format is assembled from existing specifications wherever one fits.
 | Node addressing | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form |
 | Anchors         | JSON Schema `$anchor`          | Same keyword and fragment form; no base URI support  |
 | Replacement     | JSON Reference (expired draft) | Sibling keys are an error rather than ignored        |
-| Merge semantics | RFC 7396 (JSON Merge Patch)    | Unmodified; `$extends` accepts only objects          |
+| Merge semantics | RFC 7396 (JSON Merge Patch)    | Unmodified; `$extend` accepts only objects           |
 | Array splicing  | none                           | `$splice` has no standard counterpart                |
 | Escaping        | RFC 6901 §3 (`~0`, `~1`)       | None                                                 |
 
