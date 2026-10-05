@@ -98,10 +98,19 @@ that last rule possible, and it is worth the cost: a misspelled `$extned`
 resolves to a document that inherited nothing and reports no error, which is
 among the harder failures to diagnose from the output alone.
 
-Host directives are resolved by the host, not by this specification, and are
-therefore neither consumed nor interpreted here. A host should avoid names this
-specification might plausibly take later. `$import`, `$merge`, `$delete` and
-`$override` have all been considered.
+This specification neither consumes nor interprets a host directive's key: it is
+retained in the output, and merges like any other key, for the host to act on.
+Its value is resolved like any other value, so it may itself use `$ref`,
+`$extend` and `$splice`, and the host receives it fully resolved:
+
+```json
+{ "$csv": { "$extend": "./rows.base.json", "file": "./cases.csv" } }
+```
+
+reaches the host with `rows.base.json` already merged into the value of `$csv`.
+
+A host should avoid names this specification might plausibly take later.
+`$import`, `$merge`, `$delete` and `$override` have all been considered.
 
 `$id` is reserved for a future version (see
 [Relationship to existing standards](#relationship-to-existing-standards)). This
@@ -689,6 +698,9 @@ reference, so it passes through as `null` and deletes nothing. Given
 
 resolves to `{"cache": null, "debug": false}`, not to a document without
 `cache`.
+
+A `null` written under nested `$extend` nodes deletes from each of them, not
+only the innermost.
 
 ### Anchor scope and collisions
 

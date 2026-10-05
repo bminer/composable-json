@@ -49,7 +49,7 @@
 			"expected": { "cache": { "ttl": null } }
 		},
 		{
-			"description": "applies a deletion only to the $extend it is written under",
+			"description": "deletes from every $extend the null is written under",
 			"documents": {
 				"main.json": {
 					"$extend": "./base.json",
@@ -58,7 +58,7 @@
 				"base.json": { "cache": { "ttl": 300, "size": 1 } },
 				"x.json": { "ttl": 60, "mode": "lru" }
 			},
-			"expected": { "cache": { "ttl": 300, "size": 1, "mode": "lru" } }
+			"expected": { "cache": { "size": 1, "mode": "lru" } }
 		},
 		{
 			"description": "keeps a null spliced into an array",

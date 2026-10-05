@@ -41,12 +41,45 @@
 			"error": "unknown-directive"
 		},
 		{
-			"description": "passes a declared host directive through untouched",
+			"description": "retains a declared host directive",
 			"options": { "hostDirectives": ["$env"] },
 			"documents": {
 				"main.json": { "port": { "$env": "PORT" } }
 			},
 			"expected": { "port": { "$env": "PORT" } }
+		},
+		{
+			"description": "resolves directives inside a host directive's value",
+			"options": { "hostDirectives": ["$csv"] },
+			"documents": {
+				"main.json": {
+					"$csv": { "$extend": "./rows.base.json", "file": "./cases.csv" }
+				},
+				"rows.base.json": { "delimiter": ",", "header": true }
+			},
+			"expected": {
+				"$csv": { "delimiter": ",", "header": true, "file": "./cases.csv" }
+			}
+		},
+		{
+			"description": "merges a host directive like any other key",
+			"options": { "hostDirectives": ["$csv"] },
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"$csv": { "file": "./b.csv" }
+				},
+				"base.json": { "$csv": { "file": "./a.csv", "header": true } }
+			},
+			"expected": { "$csv": { "file": "./b.csv", "header": true } }
+		},
+		{
+			"description": "rejects an unknown directive inside a host directive's value",
+			"options": { "hostDirectives": ["$csv"] },
+			"documents": {
+				"main.json": { "$csv": { "$oops": 1 } }
+			},
+			"error": "unknown-directive"
 		},
 		{
 			"description": "rejects an undeclared directive alongside declared ones",
