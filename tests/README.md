@@ -59,7 +59,8 @@ keys belong to the documents inside them.
 | `noBaseURI`      | supply the root document as text, with no base URI to resolve |
 
 Only the `file` scheme and, when `remote` is set, `http` and `https` are
-supported.
+supported. `file` is local, `https` is remote with protection in transit, and
+`http` is remote without it.
 
 ### Errors
 
@@ -75,6 +76,7 @@ codes.
 | `unresolvable-reference`  | a reference cannot be resolved, including an unsupported or off scheme |
 | `missing-base-uri`        | a relative reference in a document with no base URI                    |
 | `remote-to-local`         | a remote document references a local resource                          |
+| `insecure-reference`      | an `https` document references an `http` resource                      |
 | `cycle`                   | a node is needed while it is still being resolved                      |
 | `duplicate-anchor`        | two nodes in the result carry the same `$anchor`                       |
 | `anchor-in-defs`          | an `$anchor` inside `$defs`                                            |

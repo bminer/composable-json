@@ -813,7 +813,8 @@ while the same reference in a document loaded from
 remote document stays remote.
 
 Nothing in a document can change its base URI. There is no equivalent of JSON
-Schema's `$id`.
+Schema's `$id`. A document retrieved through a redirect, however, has as its
+base URI the last URI used, per RFC 3986 §5.1.3.
 
 A document that was not loaded from a URI — read from standard input, or
 supplied as a string — has no base URI unless the caller provides one. Its
@@ -838,6 +839,17 @@ the resolving. Its relative references already stay remote, so the rule governs
 its absolute ones. Without it, a remote document could read local files and
 carry their contents into the resolved output. The restriction runs one way
 only: a local document may reference a remote one, subject to the rule above.
+
+Likewise, a document retrieved with protection in transit — over `https`, say —
+**must not reference a resource retrieved without it**, such as over plain
+`http`. A resolved document is only as trustworthy as its least protected part,
+so one unprotected reference would let anyone on the network alter it. This
+restriction also runs one way: a document retrieved without protection may
+reference one retrieved with it.
+
+A redirect is held to the same rules as a reference: it may not lead from a
+remote resource to a local one, nor from a protected resource to an unprotected
+one.
 
 Reference paths are URI paths. They use `/` as the separator on every platform,
 and are percent-decoded per RFC 3986 before use. An implementation reading from
@@ -925,6 +937,8 @@ wherever they occur.
 - A relative reference, other than a fragment-only one, in a document with no
   base URI
 - A reference from a remote document to a local resource
+- A reference from a document retrieved with protection in transit to a resource
+  retrieved without it
 - A reference cycle, unless the implementation resolves into a graph (see
   [Cycles and memoization](#cycles-and-memoization)); the error should name the
   full chain
@@ -942,6 +956,32 @@ wherever they occur.
   that does not match its pattern, say, or a `$ref` given an array
 - A `$`-prefixed key defined by neither this specification nor the host format
   (see [Host directives](#host-directives)), other than the reserved `$id`
+
+### Security considerations
+
+Resolving a document means retrieving every resource it references, so a
+document from an untrusted source can make a resolver do more than its author
+appears to ask. The rules in
+[Base URIs, schemes, and encoding](#base-uris-schemes-and-encoding) close the
+gravest gaps: network retrieval is off unless enabled, a remote document cannot
+read local resources, and a protected document cannot draw on unprotected ones.
+Beyond those, this specification leaves the remedies to implementations, which
+should consider the following.
+
+- **Internal network addresses.** Once network retrieval is enabled, a document
+  can reference any host the resolver can reach, including ones its author could
+  not reach directly, such as services on an internal network or a cloud
+  provider's metadata endpoint. A resolver should let its user limit which hosts
+  may be retrieved.
+- **Local files.** A local document can reference any file the resolver can
+  read, and any file containing JSON, credentials included, can be carried into
+  the output. A resolver should let its user confine retrieval to particular
+  directories, including against `..` segments and links that lead elsewhere.
+- **Resource exhaustion.** Because a value may be referenced any number of
+  times, a small document can resolve to an exponentially larger one, and a long
+  chain of references can nest arbitrarily deeply. A resolver should limit the
+  size of its output, the depth of resolution, the number of resources retrieved
+  and the size of each, and treat exceeding a limit as an error.
 
 ## Part 3 — Background
 

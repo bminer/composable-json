@@ -154,6 +154,51 @@
 			"error": "remote-to-local"
 		},
 		{
+			"description": "rejects an http document that references a local file",
+			"options": { "remote": true },
+			"root": "http://example.com/main.json",
+			"documents": {
+				"http://example.com/main.json": {
+					"x": { "$ref": "file:///suite/secret.json" }
+				},
+				"secret.json": { "token": "local-only" }
+			},
+			"error": "remote-to-local"
+		},
+		{
+			"description": "rejects an https document that references an http one",
+			"options": { "remote": true },
+			"root": "https://example.com/main.json",
+			"documents": {
+				"https://example.com/main.json": {
+					"x": { "$ref": "http://example.com/a.json" }
+				},
+				"http://example.com/a.json": { "k": 1 }
+			},
+			"error": "insecure-reference"
+		},
+		{
+			"description": "lets an http document reference an https one",
+			"options": { "remote": true },
+			"root": "http://example.com/main.json",
+			"documents": {
+				"http://example.com/main.json": {
+					"x": { "$ref": "https://example.com/a.json" }
+				},
+				"https://example.com/a.json": { "k": 1 }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
+			"description": "lets a local document reference an http one",
+			"options": { "remote": true },
+			"documents": {
+				"main.json": { "x": { "$ref": "http://example.com/a.json" } },
+				"http://example.com/a.json": { "k": 1 }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
 			"description": "resolves fragment-only references without a base URI",
 			"options": { "noBaseURI": true },
 			"documents": {

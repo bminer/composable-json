@@ -74,6 +74,7 @@
 				"unresolvable-reference",
 				"missing-base-uri",
 				"remote-to-local",
+				"insecure-reference",
 				"cycle",
 				"duplicate-anchor",
 				"anchor-in-defs",
