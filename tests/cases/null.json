@@ -61,6 +61,17 @@
 			"expected": { "cache": { "size": 1, "mode": "lru" } }
 		},
 		{
+			"description": "keeps nulls written inside an array under an $extend node",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"hosts": [null, { "a": null }]
+				},
+				"base.json": null
+			},
+			"expected": { "hosts": [null, { "a": null }] }
+		},
+		{
 			"description": "keeps a null spliced into an array",
 			"documents": {
 				"main.json": {

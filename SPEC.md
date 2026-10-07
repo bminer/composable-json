@@ -268,7 +268,7 @@ the referenced object is an ordinary value, kept unless the node overrides it.
 
 A `null` the node supplies is never kept, even where there is nothing to remove.
 In the last row, the node's value is used with any `null` inside its objects
-dropped, exactly as RFC 7396 does. Given `base.json`:
+dropped, but not inside its arrays, exactly as RFC 7396 does. Given `base.json`:
 
 ```json
 { "name": "svc" }
@@ -710,7 +710,7 @@ A resolver finds the node an anchor names in two passes:
    _other_ documents, deferring those within the document, and looks among the
    anchors their values bring in. The anchored node then resolves like any other
    node at its position, merged with whatever the document's own keys supply
-   there.
+   there. If that merge renames or removes the anchor, the name is not found.
 
 A name can arrive no other way. A copy made by a reference within the document
 would [collide](#anchor-scope-and-collisions) with its original, so deferring
@@ -759,31 +759,43 @@ with the document's own `{"cpu": 4}`.
 ### Literal `null`
 
 RFC 7396 gives `null` exactly one meaning: delete the key. A merge patch cannot
-set a value _to_ null. These semantics are adopted for the keys of an `$extend`
-node: a `null` written inside the node, at any depth, deletes the key. Anywhere
-else a written `null` is an ordinary value, since it is outside the scope of an
-`$extend` block. In the following example, `proxy` stays `null`:
+set a value _to_ `null`. This specification keeps that meaning only where
+something is merged. A `null` deletes a key when it is all of these:
+
+- **written** in the document, not delivered by a reference;
+- **under an `$extend` node**, as the value of a key in that node or in an
+  object nested inside it;
+- **not inside an array**, since arrays are never merged.
+
+Every other `null` is an ordinary value, and appears in the output.
+
+#### Outside `$extend`, a `null` is a value
+
+Nothing is merged outside an `$extend` node, so there is nothing to delete. In
+this document, `proxy` stays `null`:
 
 ```json
 { "service": { "$extend": "./service.base.json" }, "proxy": null }
 ```
 
-`$ref` is not subject to this, since replacement is not a merge: a `$ref` whose
-referenced value is `null` does indeed set the node to `null`.
+#### Inside an array, a `null` is a value
 
-A reference that resolves to `null` is a separate matter: `$extend` treats it as
-an empty object and `$splice` as an empty array, and these referenced values
-contribute nothing.
+An array is replaced whole, never merged (see [`$extend`](#extend)), so a `null`
+inside it is kept, even under an `$extend` node. This matches RFC 7396.
 
-Only a `null` written in the `$extend` node or its descendants deletes the key.
-A `null` inside a referenced document is an ordinary value, whether that
-document is the first reference in an `$extend` list or the last.
+```json
+{ "$extend": "./base.json", "hosts": [null, { "a": null }] }
+```
 
-That holds however deep the reference sits. A `null` that reaches the node's own
-keys through a nested `$ref`, `$extend` or `$splice` was still delivered by a
-reference, so it passes through as `null` and deletes nothing. Given
-`defaults.json` from [Precedence and removal](#precedence-and-removal), and
-`nothing.json` containing only `null`:
+resolves `hosts` to `[null, {"a": null}]`, whatever object `base.json` holds.
+
+#### A referenced `null` is a value
+
+A reference delivers values, never deletions. A `$ref` replaces its node
+outright, so a `$ref` to `null` sets the node to `null`, even under an `$extend`
+node. Given `defaults.json` from
+[Precedence and removal](#precedence-and-removal), and `nothing.json` containing
+only `null`:
 
 ```json
 { "$extend": "./defaults.json", "cache": { "$ref": "./nothing.json" } }
@@ -792,7 +804,17 @@ reference, so it passes through as `null` and deletes nothing. Given
 resolves to `{"cache": null, "debug": false}`, not to a document without
 `cache`.
 
-Nor is a written `null` used up by the nearest `$extend`. It deletes from every
+Likewise, a `null` inside a referenced document is a value, however deeply it is
+nested, and whether that document is the first reference in an `$extend` list or
+the last. A referenced value is resolved completely, with its own deletions
+applied, before it is delivered.
+
+A reference that resolves to `null` as a whole is different: `$extend` treats it
+as an empty object and `$splice` as an empty array, so it contributes nothing.
+
+#### A written `null` deletes at every level
+
+A written `null` is not used up by the nearest `$extend`. It deletes from every
 `$extend` node it is written under, and only then is it dropped. Given
 `base.json`:
 
@@ -820,9 +842,8 @@ from `lru.json` and, one level up, from `base.json`. Since nodes resolve
 innermost first, a resolver must carry the deletion out of the inner merge until
 every `$extend` above it has applied it.
 
-A deletion never passes through a reference. A referenced value is resolved
-completely, with its deletions applied, before it is delivered, so every `null`
-a reference delivers is an ordinary value.
+A written `null` with nothing to delete is dropped all the same (see
+[`$extend`](#extend)).
 
 ### Anchor scope and collisions
 
