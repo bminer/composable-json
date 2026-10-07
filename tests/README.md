@@ -77,7 +77,7 @@ codes.
 | `missing-base-uri`        | a relative reference in a document with no base URI                    |
 | `remote-to-local`         | a remote document references a local resource                          |
 | `insecure-reference`      | an `https` document references an `http` resource                      |
-| `cycle`                   | a node is needed while it is still being resolved                      |
+| `cycle`                   | resolution starts work that is already in progress                     |
 | `duplicate-anchor`        | two nodes in the result carry the same `$anchor`                       |
 | `extend-type`             | `$extend` references a value that is neither an object nor `null`      |
 | `splice-type`             | `$splice` references a value that is neither an array nor `null`       |

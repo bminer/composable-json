@@ -109,6 +109,39 @@
 			"error": "cycle"
 		},
 		{
+			"description": "rejects two $ref nodes whose values can only be found through each other",
+			"documents": {
+				"main.json": { "a": { "$ref": "#/b/x" }, "b": { "$ref": "#/a/x" } }
+			},
+			"error": "cycle"
+		},
+		{
+			"description": "steps into an $extend object's own key rather than resolving it",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"a": { "x": 1, "y": { "$ref": "#/a/x" } }
+				},
+				"base.json": { "a": { "z": 2 } }
+			},
+			"expected": { "a": { "x": 1, "y": 1, "z": 2 } }
+		},
+		{
+			"description": "follows a $ref again while a walk is inside its value",
+			"documents": {
+				"main.json": {
+					"a": { "$ref": "#/b" },
+					"b": { "p": { "$ref": "#/a/q" }, "q": { "z": 1 } },
+					"r": { "$ref": "#/a/p/z" }
+				}
+			},
+			"expected": {
+				"a": { "p": { "z": 1 }, "q": { "z": 1 } },
+				"b": { "p": { "z": 1 }, "q": { "z": 1 } },
+				"r": 1
+			}
+		},
+		{
 			"description": "rejects a reference to the whole containing document",
 			"documents": {
 				"main.json": { "a": { "$ref": "#" } }

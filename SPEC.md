@@ -632,17 +632,19 @@ rules decide exactly how much:
 
 1. **The target is resolved completely.** It is copied into the result, so all
    of it is needed.
-2. **Reaching the target resolves only the path to it.** A pointer is followed
-   one step at a time, and each step resolves only enough to find the next key
-   or index:
+2. **Reaching the target only steps through the path to it.** A pointer is
+   followed one step at a time, and each step needs only enough to find the next
+   key or index:
    - In an object containing `$extend`, the step needs the values its references
-     select and the object's own key for that step, but not its other keys.
+     select, completely, then continues into the object's own value at that key.
    - In an array, the step needs the values its `$splice` elements reference,
-     which decide where every element falls, but not the other elements.
-   - At a `$ref` node, the step continues in its target.
+     completely, since they decide where every element falls.
+   - At a `$ref` node, the step continues in the value its reference selects.
    - Any other node is stepped into directly.
-3. **A node needed while it is still being resolved is a cycle**, and an error
-   (see [Cycles and memoization](#cycles-and-memoization)).
+3. **Starting work that is already in progress is a cycle**, and an error. Only
+   two kinds of work count: resolving a node completely, and finding the value a
+   `$ref` selects. Stepping through a node is neither (see
+   [Cycles and memoization](#cycles-and-memoization)).
 
 Pointers therefore address the resolved document. An array index counts elements
 after splicing, and a key may be one the object inherited through `$extend`. The
@@ -715,8 +717,8 @@ A resolver finds the node an anchor names in two passes:
 A name can arrive no other way. A copy made by a reference within the document
 would [collide](#anchor-scope-and-collisions) with its original, so deferring
 those references loses nothing. If resolving the references to other documents
-needs the node making the lookup, that is a cycle, and if any of them fails to
-resolve, so does the lookup.
+needs the value of the `$ref` making the lookup, that is a cycle, and if any of
+them fails to resolve, so does the lookup.
 
 Neither pass changes a successful result. A written anchor and an imported one
 with the same name are a collision either way.
@@ -732,7 +734,7 @@ Given `middleware/common.json` from [Composing a list](#composing-a-list):
 
 No `rateLimit` anchor is written in the document, so the second pass resolves
 the `$splice`, which brings one in, and `limit` resolves to 60. The `$ref` is
-deferred, so it is never needed while it is being resolved.
+deferred, so the lookup never needs its own value.
 
 A lookup only finds the node's position. What the reference selects is the
 resolved node at that position, which may differ from the node that carried the
@@ -1041,8 +1043,21 @@ first converted to the JSON Pointer of the node it names, so `#oncall` and
 than one path is resolved once per path, and when such imports are layered the
 number of paths — and the work — grows exponentially.
 
-A node needed while it is still being resolved is a cycle. Detection uses the
-same key as the cache, which catches all three shapes:
+A cycle is starting work that is already in progress, where the work is either
+resolving a node completely or finding the value a `$ref` selects (rule 3 of
+[What a reference needs](#what-a-reference-needs)). Finding that value ends once
+it is found; the rest of a walk through it is not part of the work.
+
+| Situation                                                         | Cycle? |
+| ----------------------------------------------------------------- | ------ |
+| Resolving a node completely needs that node completely            | yes    |
+| Finding what a `$ref` selects needs what that same `$ref` selects | yes    |
+| Stepping through a node that is being resolved completely         | no     |
+| Stepping into an `$extend` object's own key                       | no     |
+| Following a `$ref` again after its value has been found           | no     |
+
+The first two of these are cycles of the first kind. The third, across
+documents, is either kind, depending on whether `p` and `q` are `$ref` nodes:
 
 ```json
 { "a": { "$extend": "#/b" }, "b": { "$extend": "#/a" } }
@@ -1060,9 +1075,43 @@ In the first, `a` needs all of `b`, and `b` needs all of `a`. The second is
 worth noting: resolving `x` requires resolving its own descendant, which
 requires `x`. It is not obviously a cycle when read.
 
-Because detection is per node rather than per document, two documents may
+This is a cycle of the second kind, though no node is ever resolved completely.
+Each `$ref`'s value can only be found by following the other:
+
+```json
+{ "a": { "$ref": "#/b/x" }, "b": { "$ref": "#/a/x" } }
+```
+
+The `healthcheck` example in [What a reference needs](#what-a-reference-needs)
+steps through the root while the root is being resolved, and is not a cycle. Nor
+is a reference between siblings under an `$extend`, since the step continues
+into the object's own value rather than resolving it:
+
+```json
+{
+	"$extend": "./base.json",
+	"a": { "x": 1, "y": { "$ref": "#/a/x" } }
+}
+```
+
+resolves `y` to 1. Without this, adding an `$extend` to an object would break
+references between its keys. Nor, finally, is following a `$ref` a second time
+while a walk is still inside its value:
+
+```json
+{
+	"a": { "$ref": "#/b" },
+	"b": { "p": { "$ref": "#/a/q" }, "q": { "z": 1 } },
+	"r": { "$ref": "#/a/p/z" }
+}
+```
+
+resolves `r` to 1. The walk follows `a` to `b`, reaches `p`, and follows `a`
+again to find `q`, but each time `a`'s value is found before the walk moves on.
+
+Because cycles are found per node rather than per document, two documents may
 reference each other, as in [What a reference needs](#what-a-reference-needs),
-so long as no node needs itself.
+so long as no work restarts while it is in progress.
 
 The rules in [What a reference needs](#what-a-reference-needs) decide exactly
 what is a cycle, so that every resolver agrees. The cost is that they reject a
