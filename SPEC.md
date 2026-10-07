@@ -86,6 +86,10 @@ Objects merge key by key, to any depth, and the importing document wins.
 resolution and do not appear in the output. `$anchor`, `$defs` and `$comment`
 are retained, and so is `$schema` when the resolved document itself contains it.
 
+Retained keys keep a resolved value addressable: a later reference can still
+find an anchor or point into `$defs`. A consumer of the final output rarely
+needs them, so an implementation may offer to omit them from the output.
+
 ### Host directives
 
 A specification built on this one — a configuration format or a test format, say
@@ -119,6 +123,11 @@ retained in the output like `$comment`. A host format must not define it.
 Because documents may already contain `$id`, giving it a meaning later would be
 a major release (see [Versioning](#versioning)).
 
+`$literal` is reserved too, for a possible directive whose value is taken
+verbatim: not resolved, not merged, and free to contain `null` and `$`-prefixed
+keys. Unlike `$id`, it is an error in this version, so defining it later would
+be a minor release. A host format must not define it.
+
 ### References
 
 A reference is a URI reference (RFC 3986) whose fragment identifies a value
@@ -129,17 +138,25 @@ reference is resolved:
 
 - `/` — an RFC 6901 JSON Pointer, resolved from the document root
 - end of string, or no fragment at all — the whole document
-- anything else — an [`$anchor`](#anchor) name, terminated by `/` or end of
+- a letter or `_` — an [`$anchor`](#anchor) name, terminated by `/` or end of
   string, optionally followed by a JSON pointer path relative to the anchored
   node
+- anything else — an error
 
 ```abnf
-reference    = URI-reference                  ; RFC 3986
-fragment     = json-pointer / anchor-path
-json-pointer = *( "/" reference-token )       ; RFC 6901
-anchor-path  = anchor *( "/" reference-token )
-anchor       = ( ALPHA / "_" ) *( ALPHA / DIGIT / "-" / "_" / "." )
+reference       = URI-reference                    ; RFC 3986 §4.1
+cj-fragment     = json-pointer / anchor-path
+json-pointer    = *( "/" reference-token )         ; RFC 6901 §3
+anchor-path     = anchor-name *( "/" reference-token )
+anchor-name     = ( ALPHA / "_" ) *( ALPHA / DIGIT / "-" / "_" / "." )
+reference-token = <reference-token, RFC 6901 §3>
 ```
+
+The `fragment` component of a reference is first percent-decoded and read as
+UTF-8, as RFC 6901 §6 describes, and the result must match `cj-fragment`. The
+decoding comes first, so `%2F` separates tokens like `/` does; a `/` within a
+key is written `~1`. `ALPHA` and `DIGIT` are the core rules of RFC 5234, and
+`anchor-name` is the same production as the [`$anchor`](#anchor) value.
 
 | Reference                      | Resolves to                                 |
 | ------------------------------ | ------------------------------------------- |
@@ -161,7 +178,7 @@ to. Its value is a single reference string.
 
 The referenced value may resolve to anything: an object, an array, a scalar, or
 `null`. A node containing `$ref` may contain no other key, reserved or
-otherwise.
+otherwise, except [`$comment`](#comment), which is dropped along with the node.
 
 Given `defaults.json`:
 
@@ -225,12 +242,14 @@ Every reference must resolve to an object or to `null`, which is treated as an
 empty object so that an optional base can be left empty on purpose. Any other
 value, including one that fails to resolve, is an error.
 
-`$extend` departs from the JSON merge patch specification (RFC 7396) in two
+`$extend` departs from the JSON merge patch specification (RFC 7396) in three
 places. RFC 7396 silently replaces a target of any other type with an empty
 object; this specification rejects them, since a referenced array or string
-almost always means a reference pointing to the wrong place. And when several
+almost always means a reference pointing to the wrong place. When several
 references are combined, a `null` among them is a value rather than a deletion,
-as described below.
+as described below. Finally, a `null` that reaches the node's own keys through a
+reference is a value too: only a `null` written in the document deletes (see
+[Literal `null`](#literal-null)).
 
 The merge itself closely follows RFC 7396 and applies recursively at every key
 according to the table below:
@@ -305,9 +324,9 @@ three.
   one after the other.
 - An empty array or `null` contributes no elements, so a `$splice` whose
   references all resolve to either removes the node.
-- Like `$ref`, a node containing `$splice` may contain no other key. Once the
-  node is replaced by referenced elements, there is nothing left to attach them
-  to.
+- Like `$ref`, a node containing `$splice` may contain no other key except
+  `$comment`, which is dropped along with the node. Once the node is replaced by
+  referenced elements, there is nothing left to attach other keys to.
 
 To insert a referenced array as a _single_ element instead, use [`$ref`](#ref).
 
@@ -365,11 +384,27 @@ The name is borrowed from JSON Schema. `$defs` is retained in the resolved
 output; consumers are expected to ignore it. Other documents may reference into
 it, as they may into any part of the output.
 
-**`$anchor` is not allowed anywhere inside `$defs`**, whether written there or
-brought in by a reference. A fragment in `$defs` exists to be copied, and the
-original stays in place, so an anchor inside it would always end up on two nodes
-— a [collision](#anchor-scope-and-collisions). Reference a `$defs` fragment by
-pointer instead. To name a copy, declare the anchor where the copy is made:
+A fragment in `$defs` may carry an `$anchor`, but it exists to be copied, and
+the original stays in place. Copying an anchored fragment within its own
+document therefore puts the name on two nodes, which is a
+[collision](#anchor-scope-and-collisions), unless the copy [renames](#renaming)
+it:
+
+```json
+{
+	"tasks": [
+		{ "$anchor": "deployStaging", "$extend": "#deploy", "env": "staging" }
+	],
+	"$defs": { "deploy": { "$anchor": "deploy", "run": "./deploy.sh" } }
+}
+```
+
+Another document may reference the fragment by its anchor without renaming it.
+Only the copy reaches that document, unless it also imports the `$defs` that
+holds the original.
+
+A fragment can also be left unnamed, with a name declared on each copy where it
+is made:
 
 ```json
 { "$anchor": "deploy", "$extend": "#/$defs/deploy", "env": "staging" }
@@ -389,8 +424,19 @@ format assembled from many hand-edited files needs somewhere to explain itself.
 ```
 
 It is legal on any object, and is retained in the resolved output — so a comment
-written in one document survives into every document that extends it. The name
-and the role are JSON Schema's.
+written in one document survives into every document that extends it. The one
+exception is a `$comment` beside `$ref` or `$splice`, the only key those allow:
+it explains the reference, and is dropped along with the node that the reference
+replaces.
+
+```json
+{
+	"limits": {
+		"$comment": "Shared with the batch workers; change both together.",
+		"$ref": "./limits.json"
+	}
+}
+```
 
 ### `$schema`
 
@@ -604,6 +650,55 @@ the reference to succeed.
 The rules apply to every reference, whether it points into the same document or
 another one.
 
+Given `service.base.json` from the [Example](#example):
+
+```json
+{
+	"$extend": "./service.base.json",
+	"server": { "tls": true },
+	"healthcheck": { "port": { "$ref": "#/server/port" } }
+}
+```
+
+`#/server/port` steps into the root, which contains `$extend`. That step needs
+`service.base.json` and the root's own `server` key, `{"tls": true}`, but not
+`healthcheck`. Their merge has `port` 8080, which the reference selects. The
+document references a value it inherited, from inside itself, without a cycle.
+
+An array step counts elements after splicing, and parts off the path are never
+touched. Given `hosts.json` from
+[Splicing versus nesting](#splicing-versus-nesting), and `app.json`:
+
+```json
+{
+	"hosts": [{ "$splice": "./hosts.json#/primary" }, "c.example.com"],
+	"fallback": { "$ref": "#/hosts/2" },
+	"legacy": { "$ref": "./missing.json" }
+}
+```
+
+`#/hosts/2` steps into `hosts`, an array, so it needs the value the `$splice`
+references. That value has two elements, so `"c.example.com"` falls at index
+two. Another document may reference `./app.json#/fallback` and succeed, since
+nothing on that path needs `legacy`. Resolving `app.json` itself needs every
+node, so it reports that `missing.json` does not exist.
+
+Two documents may also reference each other. Given `a.json`:
+
+```json
+{ "name": "a", "peer": { "$ref": "./b.json#/name" } }
+```
+
+and `b.json`:
+
+```json
+{ "name": "b", "peer": { "$ref": "./a.json#/name" } }
+```
+
+`a.json`'s `peer` needs only `/name` from `b.json`, which holds no directive,
+and never `b.json`'s own `peer`. Each document resolves to its own name and the
+other's.
+
 #### Finding an anchor
 
 A resolver finds the node an anchor names in two passes:
@@ -636,55 +731,50 @@ No `rateLimit` anchor is written in the document, so the second pass resolves
 the `$splice`, which brings one in, and `limit` resolves to 60. The `$ref` is
 deferred, so it is never needed while it is being resolved.
 
-#### Examples
+A lookup only finds the node's position. What the reference selects is the
+resolved node at that position, which may differ from the node that carried the
+name. Given `common.json`:
 
-Given `service.base.json` from the [Example](#example):
+```json
+{ "limits": { "$anchor": "limits", "cpu": 2, "memory": 1 } }
+```
+
+then:
 
 ```json
 {
-	"$extend": "./service.base.json",
-	"server": { "tls": true },
-	"healthcheck": { "port": { "$ref": "#/server/port" } }
+	"$extend": "./common.json",
+	"limits": { "cpu": 4 },
+	"jobCpu": { "$ref": "#limits/cpu" }
 }
 ```
 
-`#/server/port` steps into the root, which contains `$extend`. That step needs
-`service.base.json` and the root's own `server` key, `{"tls": true}`, but not
-`healthcheck`. Their merge has `port` 8080, which the reference selects. The
-document references a value it inherited, from inside itself, without a cycle.
-
-Two documents may also reference each other. Given `a.json`:
-
-```json
-{ "name": "a", "peer": { "$ref": "./b.json#/name" } }
-```
-
-and `b.json`:
-
-```json
-{ "name": "b", "peer": { "$ref": "./a.json#/name" } }
-```
-
-`a.json`'s `peer` needs only `/name` from `b.json`, which holds no directive,
-and never `b.json`'s own `peer`. Each document resolves to its own name and the
-other's.
+resolves `jobCpu` to 4, not 2. The second pass finds `limits` on the node
+`common.json` brings in at `/limits`. The node at `/limits` is that one merged
+with the document's own `{"cpu": 4}`.
 
 ### Literal `null`
 
 RFC 7396 gives `null` exactly one meaning: delete the key. A merge patch cannot
-set a value _to_ null. These semantics are adopted as written. In a document
-that uses `$extend`, a literal `null` therefore deletes rather than sets; a
-document with no imports is unaffected, since nothing is merged.
+set a value _to_ null. These semantics are adopted for the keys of an `$extend`
+node: a `null` written inside the node, at any depth, deletes the key. Anywhere
+else a written `null` is an ordinary value, since it is outside the scope of an
+`$extend` block. In the following example, `proxy` stays `null`:
+
+```json
+{ "service": { "$extend": "./service.base.json" }, "proxy": null }
+```
 
 `$ref` is not subject to this, since replacement is not a merge: a `$ref` whose
 referenced value is `null` does indeed set the node to `null`.
 
 A reference that resolves to `null` is a separate matter: `$extend` treats it as
-an empty object and `$splice` as an empty array, so either contributes nothing.
+an empty object and `$splice` as an empty array, and these referenced values
+contribute nothing.
 
-Only a `null` written in the node itself deletes. A `null` inside a referenced
-document is an ordinary value, whether that document is the first reference in
-an `$extend` list or the last.
+Only a `null` written in the `$extend` node or its descendants deletes the key.
+A `null` inside a referenced document is an ordinary value, whether that
+document is the first reference in an `$extend` list or the last.
 
 That holds however deep the reference sits. A `null` that reaches the node's own
 keys through a nested `$ref`, `$extend` or `$splice` was still delivered by a
@@ -699,8 +789,37 @@ reference, so it passes through as `null` and deletes nothing. Given
 resolves to `{"cache": null, "debug": false}`, not to a document without
 `cache`.
 
-A `null` written under nested `$extend` nodes deletes from each of them, not
-only the innermost.
+Nor is a written `null` used up by the nearest `$extend`. It deletes from every
+`$extend` node it is written under, and only then is it dropped. Given
+`base.json`:
+
+```json
+{ "cache": { "ttl": 300, "size": 1 } }
+```
+
+and `lru.json`:
+
+```json
+{ "ttl": 60, "mode": "lru" }
+```
+
+then:
+
+```json
+{
+	"$extend": "./base.json",
+	"cache": { "$extend": "./lru.json", "ttl": null }
+}
+```
+
+resolves to `{"cache": {"size": 1, "mode": "lru"}}`. The `null` removes `ttl`
+from `lru.json` and, one level up, from `base.json`. Since nodes resolve
+innermost first, a resolver must carry the deletion out of the inner merge until
+every `$extend` above it has applied it.
+
+A deletion never passes through a reference. A referenced value is resolved
+completely, with its deletions applied, before it is delivered, so every `null`
+a reference delivers is an ordinary value.
 
 ### Anchor scope and collisions
 
@@ -797,7 +916,8 @@ one:
 ```
 
 This is the supported way to import the same named node twice. It works only
-with `$extend`, since `$ref` and `$splice` permit no sibling keys.
+with `$extend`, since `$ref` and `$splice` permit no sibling keys other than
+`$comment`.
 
 ### Base URIs, schemes, and encoding
 
@@ -891,8 +1011,8 @@ worth noting: resolving `x` requires resolving its own descendant, which
 requires `x`. It is not obviously a cycle when read.
 
 Because detection is per node rather than per document, two documents may
-reference each other, as in [Resolution order](#resolution-order), so long as no
-node needs itself.
+reference each other, as in [What a reference needs](#what-a-reference-needs),
+so long as no node needs itself.
 
 The rules in [What a reference needs](#what-a-reference-needs) decide exactly
 what is a cycle, so that every resolver agrees. The cost is that they reject a
@@ -944,16 +1064,16 @@ wherever they occur.
   full chain
 - Duplicate `$anchor` within a resolved value; the error should give both paths,
   and say when one of them was imported
-- An `$anchor` inside `$defs`, whether written there or brought in by a
-  reference
 - A value referenced by `$extend` that is neither an object nor `null`
 - A value referenced by `$splice` that is neither an array nor `null`
 - `$splice` on an object that is not an element of an array
-- Any key alongside `$ref` or `$splice`, including `$anchor`
+- Any key alongside `$ref` or `$splice` other than `$comment`, including
+  `$anchor`
 - A node containing both `$extend` and its synonym `$extends`
 - An `$extend` or `$splice` given an empty array of references
 - A directive whose value is malformed or of the wrong type — an `$anchor` name
-  that does not match its pattern, say, or a `$ref` given an array
+  that does not match its pattern, say, a `$ref` given an array, or a reference
+  whose fragment does not match `cj-fragment` (see [References](#references))
 - A `$`-prefixed key defined by neither this specification nor the host format
   (see [Host directives](#host-directives)), other than the reserved `$id`
 
@@ -1030,21 +1150,21 @@ Composable JSON documents conventionally use the `.json` file extension.
 
 The format is assembled from existing specifications wherever one fits.
 
-| Concept              | Standard                       | Deviation                                                         |
-| -------------------- | ------------------------------ | ----------------------------------------------------------------- |
-| References           | RFC 3986 (URI Reference)       | None                                                              |
-| Node addressing      | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form              |
-| Anchors              | JSON Schema `$anchor`          | Same keyword and name; fragment may add a pointer; no base URIs   |
-| Replacement          | JSON Reference (expired draft) | Sibling keys are an error rather than ignored                     |
-| Merge semantics      | RFC 7396 (JSON Merge Patch)    | Unmodified for the node's keys; targets must be objects or `null` |
-| Combining references | RFC 7396 (JSON Merge Patch)    | `null` is a value, not a deletion                                 |
-| Array splicing       | none                           | `$splice` has no standard counterpart                             |
-| Escaping             | RFC 6901 §3 (`~0`, `~1`)       | None                                                              |
+| Concept              | Standard                       | Deviation                                                        |
+| -------------------- | ------------------------------ | ---------------------------------------------------------------- |
+| References           | RFC 3986 (URI Reference)       | None                                                             |
+| Node addressing      | RFC 6901 (JSON Pointer)        | Adds `$anchor` names as an alternative fragment form             |
+| Anchors              | JSON Schema `$anchor`          | Same keyword and name; fragment may add a pointer; no base URIs  |
+| Replacement          | JSON Reference (expired draft) | Sibling keys other than `$comment` are an error, not ignored     |
+| Merge semantics      | RFC 7396 (JSON Merge Patch)    | Only a written `null` deletes; targets must be objects or `null` |
+| Combining references | RFC 7396 (JSON Merge Patch)    | `null` is a value, not a deletion                                |
+| Array splicing       | none                           | `$splice` has no standard counterpart                            |
+| Escaping             | RFC 6901 §3 (`~0`, `~1`)       | None                                                             |
 
 JSON Schema and JSON-LD both solve document identity and reference, but their
 machinery is far larger than this needs. Rather than subset either one, this
 specification extends JSON Pointer with a single idea — a node may name itself —
-and reuses JSON Merge Patch unchanged for everything else.
+and reuses JSON Merge Patch, with the deviations above, for everything else.
 
 JSON Schema's `$id`, which establishes a base URI for a schema resource, has no
 counterpart here. `$anchor` alone provides all the naming this format needs, and
@@ -1060,21 +1180,13 @@ must allow a root `$id` to be an absolute URI. `$id` is nonetheless reserved, so
 that a later version may give it a meaning without conflicting with any host
 format.
 
-Fragment identifier syntax and semantics belong to the media type of the
-retrieved resource, and BCP 190 (RFC 8820) accordingly forbids one specification
-from defining structure within another's fragments. This specification defines
-fragment semantics only for its own [media type](#media-type), following the
-precedent of JSON Schema, which defines plain-name fragments for
-`application/schema+json`. The pointer form needs no such licence: RFC 6901 §6
-already defines it as a reusable fragment representation for any JSON-based
-media type.
-
 `$ref` itself originates in the JSON Reference draft, which specified that any
 members other than `$ref` "SHALL be ignored". JSON Schema draft-07 and OpenAPI
 3.0 inherited that rule; JSON Schema 2019-09 and later reversed it, applying
 such members in addition. This specification does neither: sibling keys are an
 error, so that a document written against either interpretation fails loudly
-rather than behaving in a way its author did not intend.
+rather than behaving in a way its author did not intend. `$comment` alone is
+allowed, since it means the same thing under every interpretation.
 
 #### Composable JSON cannot compose JSON Schema
 

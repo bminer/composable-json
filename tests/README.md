@@ -79,11 +79,10 @@ codes.
 | `insecure-reference`      | an `https` document references an `http` resource                      |
 | `cycle`                   | a node is needed while it is still being resolved                      |
 | `duplicate-anchor`        | two nodes in the result carry the same `$anchor`                       |
-| `anchor-in-defs`          | an `$anchor` inside `$defs`                                            |
 | `extend-type`             | `$extend` references a value that is neither an object nor `null`      |
 | `splice-type`             | `$splice` references a value that is neither an array nor `null`       |
 | `splice-position`         | `$splice` on an object that is not an array element                    |
-| `sibling-keys`            | a key alongside `$ref` or `$splice`                                    |
+| `sibling-keys`            | a key other than `$comment` alongside `$ref` or `$splice`              |
 | `extend-synonym-conflict` | a node with both `$extend` and `$extends`                              |
 | `empty-references`        | `$extend` or `$splice` given an empty array                            |
 | `malformed-directive`     | a directive's value is malformed or of the wrong type                  |

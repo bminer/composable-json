@@ -158,6 +158,16 @@
 			"error": "sibling-keys"
 		},
 		{
+			"description": "allows $comment alongside $splice and drops it",
+			"documents": {
+				"main.json": {
+					"list": [{ "$comment": "note", "$splice": "./a.json" }, 2]
+				},
+				"a.json": [1]
+			},
+			"expected": { "list": [1, 2] }
+		},
+		{
 			"description": "rejects an empty list of references",
 			"documents": {
 				"main.json": { "list": [{ "$splice": [] }] }

@@ -239,25 +239,6 @@
 			}
 		},
 		{
-			"description": "rejects an anchor written inside $defs",
-			"documents": {
-				"main.json": { "$defs": { "x": { "$anchor": "x", "k": 1 } } }
-			},
-			"error": "anchor-in-defs"
-		},
-		{
-			"description": "rejects an anchor brought into $defs by a reference",
-			"documents": {
-				"main.json": {
-					"$defs": { "mw": [{ "$splice": "./common.json#/middleware" }] }
-				},
-				"common.json": {
-					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
-				}
-			},
-			"error": "anchor-in-defs"
-		},
-		{
 			"description": "rejects a name starting with a digit",
 			"documents": {
 				"main.json": { "x": { "$anchor": "1st", "k": 1 } }

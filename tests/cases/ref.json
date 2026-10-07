@@ -97,12 +97,20 @@
 			"error": "sibling-keys"
 		},
 		{
-			"description": "rejects $comment alongside $ref",
+			"description": "allows $comment alongside $ref and drops it",
 			"documents": {
 				"main.json": { "x": { "$comment": "note", "$ref": "./a.json" } },
+				"a.json": { "k": 1 }
+			},
+			"expected": { "x": { "k": 1 } }
+		},
+		{
+			"description": "rejects a non-string $comment alongside $ref",
+			"documents": {
+				"main.json": { "x": { "$comment": 1, "$ref": "./a.json" } },
 				"a.json": {}
 			},
-			"error": "sibling-keys"
+			"error": "malformed-directive"
 		},
 		{
 			"description": "rejects an array value",

@@ -55,6 +55,54 @@
 			}
 		},
 		{
+			"description": "keeps an anchor written inside $defs",
+			"documents": {
+				"main.json": { "$defs": { "x": { "$anchor": "x", "k": 1 } } }
+			},
+			"expected": { "$defs": { "x": { "$anchor": "x", "k": 1 } } }
+		},
+		{
+			"description": "lets another document reference an anchor inside $defs",
+			"documents": {
+				"main.json": { "task": { "$ref": "./lib.json#deploy" } },
+				"lib.json": {
+					"$defs": { "deploy": { "$anchor": "deploy", "run": "./deploy.sh" } }
+				}
+			},
+			"expected": { "task": { "$anchor": "deploy", "run": "./deploy.sh" } }
+		},
+		{
+			"description": "rejects an unrenamed copy of an anchored fragment in the same document",
+			"documents": {
+				"main.json": {
+					"task": { "$ref": "#/$defs/deploy" },
+					"$defs": { "deploy": { "$anchor": "deploy", "run": "./deploy.sh" } }
+				}
+			},
+			"error": "duplicate-anchor"
+		},
+		{
+			"description": "renames a copy of an anchored fragment in the same document",
+			"documents": {
+				"main.json": {
+					"task": {
+						"$anchor": "deployStaging",
+						"$extend": "#deploy",
+						"env": "staging"
+					},
+					"$defs": { "deploy": { "$anchor": "deploy", "run": "./deploy.sh" } }
+				}
+			},
+			"expected": {
+				"task": {
+					"$anchor": "deployStaging",
+					"run": "./deploy.sh",
+					"env": "staging"
+				},
+				"$defs": { "deploy": { "$anchor": "deploy", "run": "./deploy.sh" } }
+			}
+		},
+		{
 			"description": "merges $defs from an extended document",
 			"documents": {
 				"main.json": { "$extend": "./base.json", "$defs": { "b": 2 } },

@@ -77,7 +77,6 @@
 				"insecure-reference",
 				"cycle",
 				"duplicate-anchor",
-				"anchor-in-defs",
 				"extend-type",
 				"splice-type",
 				"splice-position",
