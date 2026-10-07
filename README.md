@@ -69,6 +69,15 @@ reserved for a future version.
 - **Safe by default.** Resolvers don't fetch over the network unless the user
   enables it, and remote documents can never read local files.
 
+## Implementations
+
+| Language | Repository                                                                | Spec version |
+| -------- | ------------------------------------------------------------------------- | ------------ |
+| Go       | [bminer/composable-json-go](https://github.com/bminer/composable-json-go) | 1.0.0-draft  |
+
+An implementation that passes the [conformance tests](#conformance-tests) is
+welcome here.
+
 ## Conformance tests
 
 [`tests/`](tests) holds a language-neutral conformance suite. Each case gives a
@@ -89,8 +98,6 @@ documents from memory, resolves the root, and compares the result. See the
 
 Version **1.0.0-draft**. The specification may still change incompatibly before
 1.0.0. See [Versioning](SPEC.md#versioning) for the release policy.
-
-There is no reference implementation yet.
 
 ## License
 
