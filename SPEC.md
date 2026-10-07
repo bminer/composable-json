@@ -206,7 +206,9 @@ resolves to:
 `$anchor` declares a name for the object that contains it. It is legal on any
 object, and its value must match `^[A-Za-z_][-A-Za-z0-9._]*$` — the same
 production JSON Schema 2020-12 uses. Names must be unique within a resolved
-document; see [Anchor scope and collisions](#anchor-scope-and-collisions).
+document; see [Anchor scope and collisions](#anchor-scope-and-collisions). Under
+an `$extend` node, its value may also be `null`, which removes an imported name
+(see [Removing a name](#removing-a-name)).
 
 Given `roster.json`:
 
@@ -388,7 +390,7 @@ A fragment in `$defs` may carry an `$anchor`, but it exists to be copied, and
 the original stays in place. Copying an anchored fragment within its own
 document therefore puts the name on two nodes, which is a
 [collision](#anchor-scope-and-collisions), unless the copy [renames](#renaming)
-it:
+or [removes](#removing-a-name) it:
 
 ```json
 {
@@ -713,7 +715,8 @@ A resolver finds the node an anchor names in two passes:
 A name can arrive no other way. A copy made by a reference within the document
 would [collide](#anchor-scope-and-collisions) with its original, so deferring
 those references loses nothing. If resolving the references to other documents
-needs the node making the lookup, that is a cycle.
+needs the node making the lookup, that is a cycle, and if any of them fails to
+resolve, so does the lookup.
 
 Neither pass changes a successful result. A written anchor and an imported one
 with the same name are a collision either way.
@@ -857,9 +860,10 @@ therefore always produces two nodes with the same name:
 ```
 
 is an error, because `primary` and `backup` both carry `oncall`. To reuse such a
-node, give the copy a name of its own with `$extend` (see
-[Renaming](#renaming)), or move the node, without its anchor, into
-[`$defs`](#defs) and reference it by pointer.
+node, use `$extend` to give the copy a name of its own (see
+[Renaming](#renaming)) or none at all (see [Removing a name](#removing-a-name)),
+or move the node, without its anchor, into [`$defs`](#defs) and reference it by
+pointer.
 
 #### `$anchor` does not affect merging
 
@@ -915,9 +919,34 @@ one:
 }
 ```
 
-This is the supported way to import the same named node twice. It works only
-with `$extend`, since `$ref` and `$splice` permit no sibling keys other than
-`$comment`.
+This, or [removing the name](#removing-a-name), is how to import the same named
+node twice. Both work only with `$extend`, since `$ref` and `$splice` permit no
+sibling keys other than `$comment`.
+
+#### Removing a name
+
+A written `"$anchor": null` deletes an imported name, as any written `null`
+under an `$extend` deletes a key (see [Literal `null`](#literal-null)). The copy
+keeps its contents but loses the name, so a node can be reused within its own
+document:
+
+```json
+{
+	"primary": { "$anchor": "oncall", "members": ["ana", "bo"] },
+	"backup": { "$extend": "#oncall", "$anchor": null }
+}
+```
+
+resolves `backup` to `{"members": ["ana", "bo"]}`, with no collision.
+
+A `null` value is valid only where a written `null` deletes: among the keys of
+an `$extend` node, at any depth, but not inside an array. Anywhere else it is an
+error. Where there is no name to delete, it is dropped like any other written
+`null`.
+
+Each `"$anchor": null` removes the name at its own position only. An anchor
+deeper in the copy needs its own, such as `"inner": {"$anchor": null}`. An
+anchor inside an array cannot be removed, since arrays are never merged.
 
 ### Base URIs, schemes, and encoding
 
@@ -1072,8 +1101,9 @@ wherever they occur.
 - A node containing both `$extend` and its synonym `$extends`
 - An `$extend` or `$splice` given an empty array of references
 - A directive whose value is malformed or of the wrong type — an `$anchor` name
-  that does not match its pattern, say, a `$ref` given an array, or a reference
-  whose fragment does not match `cj-fragment` (see [References](#references))
+  that does not match its pattern, a `null` `$anchor` where a written `null`
+  does not delete, a `$ref` given an array, or a reference whose fragment does
+  not match `cj-fragment` (see [References](#references))
 - A `$`-prefixed key defined by neither this specification nor the host format
   (see [Host directives](#host-directives)), other than the reserved `$id`
 

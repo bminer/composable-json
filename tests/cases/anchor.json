@@ -222,6 +222,70 @@
 			"error": "unresolvable-reference"
 		},
 		{
+			"description": "rejects an imported name that a local $anchor replaced",
+			"root": "other.json",
+			"documents": {
+				"other.json": {
+					"limit": { "$ref": "./app.json#rateLimit/perMinute" }
+				},
+				"app.json": {
+					"limits": {
+						"$anchor": "rateLimitInternal",
+						"$extend": "./common.json#rateLimit",
+						"perMinute": 6000
+					}
+				},
+				"common.json": {
+					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
+				}
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects an imported name that a later $extend reference replaced",
+			"documents": {
+				"main.json": {
+					"x": { "$extend": ["./a.json", "./b.json"] },
+					"y": { "$ref": "#first/k" }
+				},
+				"a.json": { "$anchor": "first", "k": 1 },
+				"b.json": { "$anchor": "second", "j": 2 }
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "finds the imported name that survives a merge",
+			"documents": {
+				"main.json": {
+					"x": { "$extend": ["./a.json", "./b.json"] },
+					"y": { "$ref": "#second/k" }
+				},
+				"a.json": { "$anchor": "first", "k": 1 },
+				"b.json": { "$anchor": "second", "j": 2 }
+			},
+			"expected": {
+				"x": { "$anchor": "second", "k": 1, "j": 2 },
+				"y": 1
+			}
+		},
+		{
+			"description": "rejects an imported anchor when another external reference fails",
+			"root": "other.json",
+			"documents": {
+				"other.json": {
+					"limit": { "$ref": "./app.json#rateLimit/perMinute" }
+				},
+				"app.json": {
+					"middleware": [{ "$splice": "./common.json#/middleware" }],
+					"legacy": { "$ref": "./missing.json" }
+				},
+				"common.json": {
+					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
+				}
+			},
+			"error": "unresolvable-reference"
+		},
+		{
 			"description": "finds a written anchor without resolving the node that refers to it",
 			"documents": {
 				"main.json": {
@@ -256,6 +320,82 @@
 			"description": "rejects a non-string name",
 			"documents": {
 				"main.json": { "x": { "$anchor": 1, "k": 1 } }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "removes the name from a copy within the same document",
+			"documents": {
+				"main.json": {
+					"primary": { "$anchor": "oncall", "members": ["ana", "bo"] },
+					"backup": { "$extend": "#oncall", "$anchor": null }
+				}
+			},
+			"expected": {
+				"primary": { "$anchor": "oncall", "members": ["ana", "bo"] },
+				"backup": { "members": ["ana", "bo"] }
+			}
+		},
+		{
+			"description": "removes a nested name from a copy",
+			"documents": {
+				"main.json": {
+					"x": {
+						"$extend": "#/$defs/d",
+						"$anchor": null,
+						"inner": { "$anchor": null }
+					},
+					"$defs": {
+						"d": { "$anchor": "outer", "inner": { "$anchor": "inner", "k": 1 } }
+					}
+				}
+			},
+			"expected": {
+				"x": { "inner": { "k": 1 } },
+				"$defs": {
+					"d": { "$anchor": "outer", "inner": { "$anchor": "inner", "k": 1 } }
+				}
+			}
+		},
+		{
+			"description": "drops a null name with nothing to remove",
+			"documents": {
+				"main.json": { "$extend": "./base.json", "$anchor": null },
+				"base.json": { "k": 1 }
+			},
+			"expected": { "k": 1 }
+		},
+		{
+			"description": "rejects an imported name that a null $anchor removed",
+			"root": "other.json",
+			"documents": {
+				"other.json": {
+					"limit": { "$ref": "./app.json#rateLimit/perMinute" }
+				},
+				"app.json": {
+					"limits": { "$extend": "./common.json#rateLimit", "$anchor": null }
+				},
+				"common.json": {
+					"middleware": [{ "$anchor": "rateLimit", "perMinute": 60 }]
+				}
+			},
+			"error": "unresolvable-reference"
+		},
+		{
+			"description": "rejects a null name outside an $extend node",
+			"documents": {
+				"main.json": { "x": { "$anchor": null, "k": 1 } }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a null name inside an array under an $extend node",
+			"documents": {
+				"main.json": {
+					"$extend": "./base.json",
+					"list": [{ "$anchor": null, "k": 1 }]
+				},
+				"base.json": {}
 			},
 			"error": "malformed-directive"
 		}

@@ -67,6 +67,19 @@
 			"expected": { "x": { "k": 1 } }
 		},
 		{
+			"description": "drops $schema from a copy made within the same document",
+			"documents": {
+				"main.json": {
+					"$defs": { "v": { "$schema": "./v.schema.json", "k": 1 } },
+					"x": { "$ref": "#/$defs/v" }
+				}
+			},
+			"expected": {
+				"$defs": { "v": { "$schema": "./v.schema.json", "k": 1 } },
+				"x": { "k": 1 }
+			}
+		},
+		{
 			"description": "rejects a non-string $schema",
 			"documents": {
 				"main.json": { "$schema": true }
