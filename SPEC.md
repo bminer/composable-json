@@ -84,7 +84,7 @@ Objects merge key by key, to any depth, and the importing document wins.
 
 `$ref`, `$extend` (and its synonym `$extends`) and `$splice` are consumed during
 resolution and do not appear in the output. `$anchor`, `$defs` and `$comment`
-are retained, and so is `$schema` when the resolved document itself contains it.
+are retained, and so is `$schema`, except in a value a reference delivers.
 
 Retained keys keep a resolved value addressable: a later reference can still
 find an anchor or point into `$defs`. A consumer of the final output rarely
@@ -456,11 +456,11 @@ error here.
 ```
 
 This specification ignores it. Its value is not a reference and is never
-resolved or retrieved. It is legal on any object, but only a `$schema` that the
-resolved document itself contains reaches the output. A value referenced from
-another document never carries one: any `$schema` within it, at any depth, is
-dropped. Each file names the schema its own editors should use, and the output
-keeps the one the top-level document chose, or none if it chose none.
+resolved or retrieved. It is legal on any object, but a reference never delivers
+one: any `$schema` within a referenced value, at any depth, is dropped, whether
+the reference points into another document or the same one. Each file names the
+schema its own editors should use, and the output keeps only the ones the
+top-level document wrote outside referenced values, or none if it wrote none.
 
 ### Choosing a directive
 

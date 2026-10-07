@@ -104,6 +104,54 @@
 			"error": "unresolvable-reference"
 		},
 		{
+			"description": "separates tokens at a percent-encoded slash",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/a%2Fb" } },
+				"a.json": { "a": { "b": 1 }, "a/b": 2 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "decodes a percent-encoded UTF-8 key",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/%C3%A9t%C3%A9" } },
+				"a.json": { "été": 1 }
+			},
+			"expected": { "x": 1 }
+		},
+		{
+			"description": "rejects a fragment that starts with neither / nor an anchor name",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#1st/k" } },
+				"a.json": { "k": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a ~ not followed by 0 or 1",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/~2" } },
+				"a.json": { "~2": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a fragment that is not percent-encoded correctly",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/%zz" } },
+				"a.json": { "k": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
+			"description": "rejects a fragment that is not UTF-8 once decoded",
+			"documents": {
+				"main.json": { "x": { "$ref": "./a.json#/%FF" } },
+				"a.json": { "k": 1 }
+			},
+			"error": "malformed-directive"
+		},
+		{
 			"description": "rejects an unsupported scheme",
 			"documents": {
 				"main.json": { "x": { "$ref": "x-unsupported:a.json" } }

@@ -33,6 +33,13 @@
 			"error": "unknown-directive"
 		},
 		{
+			"description": "rejects the reserved $literal",
+			"documents": {
+				"main.json": { "x": { "$literal": { "a": null } } }
+			},
+			"error": "unknown-directive"
+		},
+		{
 			"description": "rejects an unknown directive inside a referenced value",
 			"documents": {
 				"main.json": { "x": { "$ref": "./a.json" } },
